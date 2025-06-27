@@ -1,0 +1,23 @@
+[project]
+name = "team5-waterandfish-be"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "sweeetpotaooo",email = "sehyun5004@naver.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi (>=0.115.14,<0.116.0)",
+    "uvicorn (>=0.34.3,<0.35.0)",
+    "sqlalchemy (>=2.0.41,<3.0.0)",
+    "aiomysql (>=0.2.0,<0.3.0)"
+]
+
+[tool.poetry]
+packages = [{include = "team5_waterandfish_be", from = "src"}]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
