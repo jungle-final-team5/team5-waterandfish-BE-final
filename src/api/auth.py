@@ -1,12 +1,16 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..db.session import get_db
 from ..models.user import User
+from ..services.social_auth import SocialAuthService
+from ..core.config import settings
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from typing import Optional
 import jwt
 from pydantic import BaseModel
+from fastapi.responses import RedirectResponse
+
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -70,3 +74,47 @@ async def signin(login_data: LoginRequest, db: AsyncIOMotorDatabase = Depends(ge
             "description": user.get("description")
         }
     }
+
+# Google OAuth2.0 시작
+@router.get("/google")
+async def google_auth_start():
+    """Google OAuth2.0 인증 시작"""
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={settings.GOOGLE_CLIENT_ID}&redirect_uri={settings.GOOGLE_REDIRECT_URI}&scope=openid%20email%20profile"
+    # JSON 응답 대신 직접 리다이렉트
+    return RedirectResponse(url=auth_url)
+
+# Google OAuth2.0 콜백
+@router.get("/google/callback")
+async def google_auth_callback(code: str, db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Google OAuth2.0 콜백 처리"""
+    try:
+        social_auth = SocialAuthService(db)
+        result = await social_auth.google_oauth(code)
+        
+        # JSON 응답 대신 직접 프론트엔드로 리다이렉트
+        frontend_url = f"http://localhost:5173/auth/callback?access_token={result['access_token']}&token_type={result['token_type']}"
+        return RedirectResponse(url=frontend_url)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Google 로그인 실패: {str(e)}")
+
+# Kakao OAuth2.0 시작
+@router.get("/kakao")
+async def kakao_auth_start():
+    """Kakao OAuth2.0 인증 시작"""
+    auth_url = f"https://kauth.kakao.com/oauth/authorize?client_id={settings.KAKAO_CLIENT_ID}&redirect_uri={settings.KAKAO_REDIRECT_URI}&response_type=code"
+    # JSON 응답 대신 직접 리다이렉트
+    return RedirectResponse(url=auth_url)
+
+# Kakao OAuth2.0 콜백
+@router.get("/kakao/callback")
+async def kakao_auth_callback(code: str, db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Kakao OAuth2.0 콜백 처리"""
+    try:
+        social_auth = SocialAuthService(db)
+        result = await social_auth.kakao_oauth(code)
+        
+        # JSON 응답 대신 직접 프론트엔드로 리다이렉트
+        frontend_url = f"http://localhost:5173/auth/callback?access_token={result['access_token']}&token_type={result['token_type']}"
+        return RedirectResponse(url=frontend_url)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Kakao 로그인 실패: {str(e)}")
