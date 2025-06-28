@@ -1,13 +1,11 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+from odmantic import AIOEngine
+from motor.motor_asyncio import AsyncIOMotorClient
 
-DATABASE_URL = "mysql+aiomysql://root:tpgus8028~@localhost:3306/waterandfish?charset=utf8mb4"
+import os
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
+client = AsyncIOMotorClient(MONGODB_URL)
+engine = AIOEngine(motor_client=client, database="waterandfish")
 
-engine = create_async_engine(DATABASE_URL, echo=True)
-AsyncSessionLocal = sessionmaker(
-    bind=engine, class_=AsyncSession, expire_on_commit=False
-)
-
-async def get_db():
-    async with AsyncSessionLocal() as session:
-        yield session 
+async def get_engine():
+    yield engine 
+        
