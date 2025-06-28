@@ -36,3 +36,5 @@ htmlcov/
 # 기타
 *.swp
 *.swo 
+
+venv/
