@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+
+# Poetry
+.poetry/
+
+# VSCode
+.vscode/
+
+# macOS
+.DS_Store
+
+# Docker
+*.log
+db_data/
+mongo_data/
+.env
+
+# Byte-compiled / optimized / DLL files
+*.py[cod]
+*$py.class
+
+# Test outputs
+htmlcov/
+.coverage
+.tox/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# 기타
+*.swp
+*.swo 
