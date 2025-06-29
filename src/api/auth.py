@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import jwt
 from pydantic import BaseModel
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -18,6 +18,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 SECRET_KEY = "your-secret-key-here"  # 실제 운영에서는 환경변수로 관리
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -34,6 +35,16 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire, "type": "refresh"})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
 class LoginRequest(BaseModel):
     email: str
     password: str
@@ -45,35 +56,52 @@ async def auth_test():
 # 로그인: POST /auth/signin
 @router.post("/signin")
 async def signin(login_data: LoginRequest, db: AsyncIOMotorDatabase = Depends(get_db)):
-    # 사용자 조회
     user = await db.users.find_one({"email": login_data.email})
     if not user:
         raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 잘못되었습니다.")
-    
-    # 비밀번호 검증
     if not verify_password(login_data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 잘못되었습니다.")
-    
-    # JWT 토큰 생성
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    refresh_token_expires = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     access_token = create_access_token(
         data={"sub": str(user["_id"]), "email": user["email"]}, 
         expires_delta=access_token_expires
     )
-    
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "_id": str(user["_id"]),
-            "email": user["email"],
-            "nickname": user["nickname"],
-            "handedness": user.get("handedness"),
-            "streak_days": user.get("streak_days", 0),
-            "overall_progress": user.get("overall_progress", 0),
-            "description": user.get("description")
-        }
-    }
+    refresh_token = create_refresh_token(
+        data={"sub": str(user["_id"]), "email": user["email"]},
+        expires_delta=refresh_token_expires
+    )
+    response = Response()
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES*60
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS*24*60*60
+    )
+    response.media_type = "application/json"
+    response.body = (
+        '{"user": {"_id": "%s", "email": "%s", "nickname": "%s", "handedness": "%s", "streak_days": %d, "overall_progress": %d, "description": "%s"}}'
+        % (
+            str(user["_id"]),
+            user["email"],
+            user["nickname"],
+            user.get("handedness", ""),
+            user.get("streak_days", 0),
+            user.get("overall_progress", 0),
+            user.get("description", "")
+        )
+    ).encode()
+    return response
 
 # Google OAuth2.0 시작
 @router.get("/google")
@@ -90,10 +118,32 @@ async def google_auth_callback(code: str, db: AsyncIOMotorDatabase = Depends(get
     try:
         social_auth = SocialAuthService(db)
         result = await social_auth.google_oauth(code)
-        
-        # JSON 응답 대신 직접 프론트엔드로 리다이렉트
-        frontend_url = f"http://localhost:5173/auth/callback?access_token={result['access_token']}&token_type={result['token_type']}"
-        return RedirectResponse(url=frontend_url)
+        access_token = result["access_token"]
+        user = result["user"]
+        # refresh_token 생성
+        refresh_token_expires = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+        refresh_token = create_refresh_token(
+            data={"sub": user["_id"], "email": user["email"]},
+            expires_delta=refresh_token_expires
+        )
+        response = RedirectResponse(url=f"http://localhost:5173/auth/callback?user_id={user['_id']}&email={user['email']}&nickname={user['nickname']}&handedness={user.get('handedness','')}&streak_days={user.get('streak_days',0)}&overall_progress={user.get('overall_progress',0)}&description={user.get('description','')}")
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            secure=True,
+            samesite="strict",
+            max_age=ACCESS_TOKEN_EXPIRE_MINUTES*60
+        )
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            secure=True,
+            samesite="strict",
+            max_age=REFRESH_TOKEN_EXPIRE_DAYS*24*60*60
+        )
+        return response
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Google 로그인 실패: {str(e)}")
 
@@ -112,9 +162,75 @@ async def kakao_auth_callback(code: str, db: AsyncIOMotorDatabase = Depends(get_
     try:
         social_auth = SocialAuthService(db)
         result = await social_auth.kakao_oauth(code)
-        
-        # JSON 응답 대신 직접 프론트엔드로 리다이렉트
-        frontend_url = f"http://localhost:5173/auth/callback?access_token={result['access_token']}&token_type={result['token_type']}"
-        return RedirectResponse(url=frontend_url)
+        access_token = result["access_token"]
+        user = result["user"]
+        # refresh_token 생성
+        refresh_token_expires = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+        refresh_token = create_refresh_token(
+            data={"sub": user["_id"], "email": user["email"]},
+            expires_delta=refresh_token_expires
+        )
+        response = RedirectResponse(url=f"http://localhost:5173/auth/callback?user_id={user['_id']}&email={user['email']}&nickname={user['nickname']}&handedness={user.get('handedness','')}&streak_days={user.get('streak_days',0)}&overall_progress={user.get('overall_progress',0)}&description={user.get('description','')}")
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            secure=True,
+            samesite="strict",
+            max_age=ACCESS_TOKEN_EXPIRE_MINUTES*60
+        )
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            secure=True,
+            samesite="strict",
+            max_age=REFRESH_TOKEN_EXPIRE_DAYS*24*60*60
+        )
+        return response
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Kakao 로그인 실패: {str(e)}")
+
+@router.post("/refresh")
+async def refresh_token(request: Request):
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Refresh token missing")
+    try:
+        payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        user_id = payload.get("sub")
+        email = payload.get("email")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    refresh_token_expires = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    new_access_token = create_access_token(
+        data={"sub": user_id, "email": email},
+        expires_delta=access_token_expires
+    )
+    new_refresh_token = create_refresh_token(
+        data={"sub": user_id, "email": email},
+        expires_delta=refresh_token_expires
+    )
+    response = Response()
+    response.set_cookie(
+        key="access_token",
+        value=new_access_token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES*60
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=new_refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS*24*60*60
+    )
+    response.media_type = "application/json"
+    response.body = b'{"message": "Token refreshed"}'
+    return response
