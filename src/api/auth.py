@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, Body
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..db.session import get_db
 from ..models.user import User
@@ -14,9 +14,7 @@ from fastapi.responses import RedirectResponse, Response, JSONResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-# JWT 설정
-SECRET_KEY = "your-secret-key-here"  # 실제 운영에서는 환경변수로 관리
-ALGORITHM = "HS256"
+# JWT 설정 - settings에서 가져오기
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
@@ -32,7 +30,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     else:
         expire = datetime.utcnow() + timedelta(minutes=15)
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
 def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -42,7 +40,7 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
     else:
         expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire, "type": "refresh"})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
 class LoginRequest(BaseModel):
@@ -193,7 +191,7 @@ async def refresh_token(request: Request):
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Refresh token missing")
     try:
-        payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(refresh_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="Invalid token type")
         user_id = payload.get("sub")
@@ -234,6 +232,39 @@ async def refresh_token(request: Request):
 @router.post("/logout")
 async def logout():
     response = JSONResponse(content={"message": "로그아웃 성공"})
+    response.delete_cookie("access_token", path="/")
+    response.delete_cookie("refresh_token", path="/")
+    return response
+
+@router.delete("/delete-account")
+async def delete_account(
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    data: dict = Body(...)
+):
+    password = data.get("password")
+    if not password:
+        raise HTTPException(status_code=400, detail="비밀번호가 필요합니다.")
+    access_token = request.cookies.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=401, detail="인증 정보가 없습니다.")
+    try:
+        payload = jwt.decode(access_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+    except Exception:
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다.")
+    # DB에서 유저 조회
+    user = await db.users.find_one({"_id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+    # 비밀번호 검증
+    if not verify_password(password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="비밀번호가 일치하지 않습니다.")
+    # 유저 삭제
+    result = await db.users.delete_one({"_id": user_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=500, detail="계정 삭제에 실패했습니다.")
+    response = JSONResponse(content={"message": "계정이 성공적으로 삭제되었습니다."})
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/")
     return response
