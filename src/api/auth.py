@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import jwt
 from pydantic import BaseModel
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import RedirectResponse, Response, JSONResponse
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -71,7 +71,16 @@ async def signin(login_data: LoginRequest, db: AsyncIOMotorDatabase = Depends(ge
         data={"sub": str(user["_id"]), "email": user["email"]},
         expires_delta=refresh_token_expires
     )
-    response = Response()
+    user_dict = {
+        "_id": str(user["_id"]),
+        "email": user["email"],
+        "nickname": user["nickname"],
+        "handedness": user.get("handedness", ""),
+        "streak_days": user.get("streak_days", 0),
+        "overall_progress": user.get("overall_progress", 0),
+        "description": user.get("description", "")
+    }
+    response = JSONResponse(content={"user": user_dict})
     response.set_cookie(
         key="access_token",
         value=access_token,
@@ -88,19 +97,6 @@ async def signin(login_data: LoginRequest, db: AsyncIOMotorDatabase = Depends(ge
         samesite="strict",
         max_age=REFRESH_TOKEN_EXPIRE_DAYS*24*60*60
     )
-    response.media_type = "application/json"
-    response.body = (
-        '{"user": {"_id": "%s", "email": "%s", "nickname": "%s", "handedness": "%s", "streak_days": %d, "overall_progress": %d, "description": "%s"}}'
-        % (
-            str(user["_id"]),
-            user["email"],
-            user["nickname"],
-            user.get("handedness", ""),
-            user.get("streak_days", 0),
-            user.get("overall_progress", 0),
-            user.get("description", "")
-        )
-    ).encode()
     return response
 
 # Google OAuth2.0 시작
@@ -233,4 +229,11 @@ async def refresh_token(request: Request):
     )
     response.media_type = "application/json"
     response.body = b'{"message": "Token refreshed"}'
+    return response
+
+@router.post("/logout")
+async def logout():
+    response = JSONResponse(content={"message": "로그아웃 성공"})
+    response.delete_cookie("access_token", path="/")
+    response.delete_cookie("refresh_token", path="/")
     return response
