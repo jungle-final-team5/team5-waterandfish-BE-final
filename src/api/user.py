@@ -1,51 +1,35 @@
-from fastapi import APIRouter, HTTPException, Depends
-from typing import List
+from fastapi import APIRouter, Depends, HTTPException, Request
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from ..models.user import User, UserCreate, UserUpdate
 from ..db.session import get_db
 from ..services.user import UserService
+from ..models.user import User
+import jwt
+from ..core.config import settings  # 환경설정에서 SECRET_KEY, ALGORITHM 불러오기
 
 router = APIRouter(prefix="/user", tags=["users"])
 
 def get_user_service(db: AsyncIOMotorDatabase = Depends(get_db)) -> UserService:
-    """사용자 서비스 의존성 주입"""
     return UserService(db)
 
-# 회원가입: POST /user/signup
-@router.post("/signup", response_model=User)
-async def create_user(
-    user: UserCreate, 
+def get_current_user_id(request: Request) -> str:
+    # Authorization 헤더에서 토큰 추출
+    auth_header = request.headers.get("authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="No authorization header")
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="No user id in token")
+        return user_id
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+@router.get("/me", response_model=User)
+async def get_me(
+    request: Request,
     user_service: UserService = Depends(get_user_service)
 ):
-    return await user_service.create_user(user)
-
-# 전체 유저 조회: GET /user/
-@router.get("/", response_model=List[User])
-async def list_users(user_service: UserService = Depends(get_user_service)):
-    return await user_service.get_all_users()
-
-# 특정 유저 조회: GET /user/{user_id}
-@router.get("/{user_id}", response_model=User)
-async def get_user(
-    user_id: str, 
-    user_service: UserService = Depends(get_user_service)
-):
+    user_id = get_current_user_id(request)
     return await user_service.get_user_by_id(user_id)
-
-# 특정 유저 수정: PUT /user/{user_id}
-@router.put("/{user_id}", response_model=User)
-async def update_user(
-    user_id: str, 
-    user_update: UserUpdate, 
-    user_service: UserService = Depends(get_user_service)
-):
-    return await user_service.update_user(user_id, user_update)
-
-# 특정 유저 삭제: DELETE /user/{user_id}
-@router.delete("/{user_id}")
-async def delete_user(
-    user_id: str, 
-    user_service: UserService = Depends(get_user_service)
-):
-    await user_service.delete_user(user_id)
-    return {"ok": True}
