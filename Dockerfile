@@ -13,6 +13,9 @@ COPY pyproject.toml poetry.lock README.md ./
 RUN poetry config virtualenvs.create false \
   && poetry install --no-root --no-interaction --no-ansi
 
+  # .env 파일 복사
+COPY .env .env
+
 # 5. 실제 코드 복사
 COPY ./src ./src
 
