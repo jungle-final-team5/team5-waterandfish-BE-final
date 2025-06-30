@@ -1,4 +1,4 @@
-name: Deploy Backend
+name: Deploy Backend to EC2 (No Appleboy)
 
 on:
   push:
@@ -9,31 +9,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Debug key content
+      # 개인 키를 key.pem으로 저장
+      - name: Write SSH key
         run: |
-          echo "${{ secrets.EC2_SSH_KEY }}" | head -n 5
+          echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
+          sed -i 's/\\n/\n/g' key.pem  # \n 처리도 대비
+          chmod 600 key.pem
 
-      - name: Copy Backend Files to EC2
-        uses: appleboy/scp-action@v0.1.4
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "./"
-          target: "/home/ubuntu/backend"
+      # EC2에 파일 복사
+      - name: Copy files to EC2
+        run: |
+          scp -i key.pem -o StrictHostKeyChecking=no -r ./ ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/backend
 
-      - name: SSH into EC2 and deploy
-        uses: appleboy/ssh-action@v0.1.10
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            cd /home/ubuntu/backend
-            docker stop waterandfish-container || true
-            docker rm waterandfish-container || true
-            docker build -t waterandfish-be .
-            docker run -d --name waterandfish-container -p 8000:8000 waterandfish-be
+      # EC2에 접속해서 컨테이너 재시작
+      - name: SSH to EC2 and restart backend
+        run: |
+          ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
+          cd /home/ubuntu/backend
+          docker stop backend || true
+          docker rm backend || true
+          docker build -t backend-image .
+          docker run -d --name backend -p 8000:8000 backend-image
+          EOF
