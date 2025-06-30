@@ -10,6 +10,7 @@ from typing import Optional
 import jwt
 from pydantic import BaseModel
 from fastapi.responses import RedirectResponse, Response, JSONResponse
+from bson import ObjectId
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -46,6 +47,11 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    nickname: str
 
 @router.get("/auth-test")
 async def auth_test():
@@ -190,6 +196,7 @@ async def refresh_token(request: Request):
     refresh_token = request.cookies.get("refresh_token")
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Refresh token missing")
+    
     try:
         payload = jwt.decode(refresh_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         if payload.get("type") != "refresh":
@@ -198,8 +205,11 @@ async def refresh_token(request: Request):
         email = payload.get("email")
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
+    
+    # 새 토큰 생성
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     refresh_token_expires = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    
     new_access_token = create_access_token(
         data={"sub": user_id, "email": email},
         expires_delta=access_token_expires
@@ -208,7 +218,11 @@ async def refresh_token(request: Request):
         data={"sub": user_id, "email": email},
         expires_delta=refresh_token_expires
     )
-    response = Response()
+    
+    # 응답 생성
+    response = JSONResponse(content={"message": "Token refreshed"})
+    
+    # 쿠키 설정
     response.set_cookie(
         key="access_token",
         value=new_access_token,
@@ -225,8 +239,7 @@ async def refresh_token(request: Request):
         samesite="strict",
         max_age=REFRESH_TOKEN_EXPIRE_DAYS*24*60*60
     )
-    response.media_type = "application/json"
-    response.body = b'{"message": "Token refreshed"}'
+    
     return response
 
 @router.post("/logout")
@@ -245,26 +258,108 @@ async def delete_account(
     password = data.get("password")
     if not password:
         raise HTTPException(status_code=400, detail="비밀번호가 필요합니다.")
+    
     access_token = request.cookies.get("access_token")
     if not access_token:
         raise HTTPException(status_code=401, detail="인증 정보가 없습니다.")
+    
     try:
         payload = jwt.decode(access_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다.")
     except Exception:
         raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다.")
+    
+    # user_id를 ObjectId로 변환
+    try:
+        object_id = ObjectId(user_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="user_id 형식이 올바르지 않습니다.")
+    
     # DB에서 유저 조회
-    user = await db.users.find_one({"_id": user_id})
+    user = await db.users.find_one({"_id": object_id})
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+    
     # 비밀번호 검증
     if not verify_password(password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="비밀번호가 일치하지 않습니다.")
+    
     # 유저 삭제
-    result = await db.users.delete_one({"_id": user_id})
+    result = await db.users.delete_one({"_id": object_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=500, detail="계정 삭제에 실패했습니다.")
+    
     response = JSONResponse(content={"message": "계정이 성공적으로 삭제되었습니다."})
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/")
+    return response
+
+# 회원가입: POST /auth/signup
+@router.post("/signup")
+async def signup(signup_data: SignupRequest, db: AsyncIOMotorDatabase = Depends(get_db)):
+    # 이메일 중복 확인
+    existing_user = await db.users.find_one({"email": signup_data.email})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="이미 존재하는 이메일입니다.")
+    
+    # 비밀번호 해시화
+    hashed_password = pwd_context.hash(signup_data.password)
+    
+    # 새 사용자 생성
+    new_user = {
+        "email": signup_data.email,
+        "password_hash": hashed_password,
+        "nickname": signup_data.nickname,
+        "handedness": "",
+        "streak_days": 0,
+        "overall_progress": 0,
+        "description": "",
+        "created_at": datetime.utcnow()
+    }
+    
+    result = await db.users.insert_one(new_user)
+    new_user["_id"] = str(result.inserted_id)
+    
+    # 토큰 생성
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    refresh_token_expires = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    access_token = create_access_token(
+        data={"sub": str(result.inserted_id), "email": new_user["email"]}, 
+        expires_delta=access_token_expires
+    )
+    refresh_token = create_refresh_token(
+        data={"sub": str(result.inserted_id), "email": new_user["email"]},
+        expires_delta=refresh_token_expires
+    )
+    
+    # 응답 생성
+    user_dict = {
+        "_id": str(result.inserted_id),
+        "email": new_user["email"],
+        "nickname": new_user["nickname"],
+        "handedness": new_user["handedness"],
+        "streak_days": new_user["streak_days"],
+        "overall_progress": new_user["overall_progress"],
+        "description": new_user["description"]
+    }
+    
+    response = JSONResponse(content={"user": user_dict})
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES*60
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS*24*60*60
+    )
     return response

@@ -16,8 +16,8 @@ PyJWT = ">=2.8.0,<3.0.0"
 httpx = ">=0.24.0,<1.0.0"
 python-multipart = ">=0.0.6,<1.0.0"
 pydantic-settings = ">=2.0.0,<3.0.0"
-bcrypt = ">=4.0.0"
-passlib = {extras = ["bcrypt"], version = ">=1.7.4"}
+bcrypt = "4.0.1"
+passlib = {version = "1.7.4", extras = ["bcrypt"]}
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
