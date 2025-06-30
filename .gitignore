@@ -20,6 +20,7 @@ __pycache__/
 db_data/
 mongo_data/
 .env
+.env.production
 
 # Byte-compiled / optimized / DLL files
 *.py[cod]
