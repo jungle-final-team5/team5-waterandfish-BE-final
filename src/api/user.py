@@ -8,6 +8,7 @@ from ..core.config import settings  # 환경설정에서 SECRET_KEY, ALGORITHM �
 from fastapi.responses import JSONResponse
 from passlib.context import CryptContext
 from bson import ObjectId
+#김세현 바보
 
 router = APIRouter(prefix="/user", tags=["users"])
 
