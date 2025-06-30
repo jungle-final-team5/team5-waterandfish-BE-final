@@ -42,14 +42,17 @@ async def get_me(
     request: Request,
     user_service: UserService = Depends(get_user_service)
 ):
-    user_id = get_current_user_id(request)
+
+    # 쿠키에서 access_token 추출
+    access_token = request.cookies.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=401, detail="인증 정보가 없습니다.")
+    try:
+        payload = jwt.decode(access_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="No user id in token")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
     return await user_service.get_user_by_id(user_id)
 
-@router.put("/me", response_model=User)
-async def update_me(
-    user_update: UserUpdate,
-    request: Request,
-    user_service: UserService = Depends(get_user_service)
-):
-    user_id = get_current_user_id(request)
-    return await user_service.update_user(user_id, user_update)
