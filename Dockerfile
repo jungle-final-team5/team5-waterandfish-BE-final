@@ -16,8 +16,10 @@ RUN poetry config virtualenvs.create false \
 # 5. 실제 코드 복사
 COPY ./src ./src
 
+ENV PYTHONPATH=/app/src
+
 # 6. 포트 오픈
 EXPOSE 8000
 
 # 7. FastAPI 앱 실행
-CMD ["uvicorn", "src.team5_waterandfish_be.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "team5_waterandfish_be.main:app", "--host", "0.0.0.0", "--port", "8000"]
