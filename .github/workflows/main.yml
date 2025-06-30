@@ -12,6 +12,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
+      - name: Debug key content
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" | head -n 5
+
       - name: Copy Backend Files to EC2
         uses: appleboy/scp-action@v0.1.4
         with:
