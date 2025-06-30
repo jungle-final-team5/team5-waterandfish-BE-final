@@ -14,7 +14,7 @@ RUN poetry config virtualenvs.create false \
   && poetry install --no-root --no-interaction --no-ansi
 
 COPY .env.production .env
-# 5. 실제 코드 복사
+# 5. 실제 코드 복사입니다
 COPY ./src ./src
 
 ENV PYTHONPATH=/app/src
