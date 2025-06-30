@@ -255,9 +255,10 @@ async def delete_account(
     db: AsyncIOMotorDatabase = Depends(get_db),
     data: dict = Body(...)
 ):
-    password = data.get("password")
-    if not password:
-        raise HTTPException(status_code=400, detail="비밀번호가 필요합니다.")
+    email = data.get("email")
+    
+    if not email:
+        raise HTTPException(status_code=400, detail="이메일이 필요합니다.")
     
     access_token = request.cookies.get("access_token")
     if not access_token:
@@ -266,6 +267,7 @@ async def delete_account(
     try:
         payload = jwt.decode(access_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         user_id = payload.get("sub")
+        token_email = payload.get("email")
         if not user_id:
             raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다.")
     except Exception:
@@ -282,9 +284,13 @@ async def delete_account(
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
     
-    # 비밀번호 검증
-    if not verify_password(password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="비밀번호가 일치하지 않습니다.")
+    # 입력된 이메일과 토큰의 이메일이 일치하는지 확인
+    if user["email"] != email:
+        raise HTTPException(status_code=401, detail="이메일이 일치하지 않습니다.")
+    
+    # 토큰의 이메일과도 일치하는지 추가 검증
+    if token_email and token_email != email:
+        raise HTTPException(status_code=401, detail="토큰의 이메일과 일치하지 않습니다.")
     
     # 유저 삭제
     result = await db.users.delete_one({"_id": object_id})

@@ -23,6 +23,14 @@ export interface OAuthResponse {
   auth_url: string;
 }
 
+export interface DeleteAccountRequest {
+  email: string;
+}
+
+export interface DeleteAccountResponse {
+  message: string;
+}
+
 export interface ApiError {
   detail: string;
 } 
