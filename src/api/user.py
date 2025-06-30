@@ -56,3 +56,12 @@ async def get_me(
         raise HTTPException(status_code=401, detail="Invalid token")
     return await user_service.get_user_by_id(user_id)
 
+@router.put("/me", response_model=User)
+async def update_me(
+    request: Request,
+    user_update: UserUpdate,
+    user_service: UserService = Depends(get_user_service)
+):
+    user_id = get_current_user_id(request)
+    return await user_service.update_user(user_id, user_update)
+
