@@ -5,8 +5,8 @@ import os
 
 class Settings(BaseSettings):
     # CORS 설정 (쉼표로 구분된 문자열 → List 자동 변환됨)
-    CORS_ORIGINS: List[str] = Field(default_factory=list)
-
+    CORS_ORIGINS: str = "http://localhost:5173"
+    
     # JWT 설정
     SECRET_KEY: str
     ALGORITHM: str
