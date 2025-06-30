@@ -52,7 +52,6 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     nickname: Optional[str] = None
     handedness: Optional[Handedness] = None
-    description: Optional[str] = None
 
 class User(UserBase):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
