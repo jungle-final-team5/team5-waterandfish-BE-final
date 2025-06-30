@@ -6,6 +6,7 @@ WORKDIR /app
 RUN pip install poetry
 
 # pyproject.toml, poetry.lock 복사 및 의존성 설치
+#김세현 바보
 COPY pyproject.toml poetry.lock ./
 COPY README.md ./
 
