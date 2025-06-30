@@ -4,7 +4,6 @@ version = "0.1.0"
 description = ""
 authors = ["sweeetpotaooo <sehyun5004@naver.com>"]
 readme = "README.md"
-packages = [{include = "team5_waterandfish_be", from = "src"}]
 
 [tool.poetry.dependencies]
 python = ">=3.9"
