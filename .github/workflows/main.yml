@@ -16,8 +16,13 @@ jobs:
       - name: Write SSH key
         run: |
           echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
-          sed -i 's/\\n/\n/g' key.pem  # \n 처리도 대비
+          sed -i 's/\\n/\n/g' key.pem
           chmod 600 key.pem
+
+      # ✅ backend 폴더 삭제
+      - name: Clean remote backend directory
+        run: |
+          ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} 'sudo rm -rf /home/ubuntu/backend'
 
       # EC2에 파일 복사
       - name: Copy files to EC2
