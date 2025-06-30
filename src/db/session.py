@@ -1,14 +1,15 @@
-from motor.motor_asyncio import AsyncIOMotorClient
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from typing import AsyncGenerator
+from ..core.config import settings
 
-MONGODB_URL = "mongodb://localhost:27017"
-DATABASE_NAME = "waterandfish"
+MONGODB_URL = settings.MONGODB_URL
+DATABASE_NAME = settings.DATABASE_NAME
 
 client = AsyncIOMotorClient(MONGODB_URL)
 database = client[DATABASE_NAME]
 
-async def get_db() -> AsyncGenerator[AsyncIOMotorClient, None]:
+async def get_db() -> AsyncGenerator[AsyncIOMotorDatabase, None]:
     try:
         yield database
     finally:
-        pass  # Motor client는 애플리케이션 종료 시 자동으로 연결을 닫습니다 
+        pass
