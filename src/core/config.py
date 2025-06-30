@@ -30,9 +30,12 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
 
+
     @property
-    def cors_origins_list(self) -> List[str]:
+    def cors_origins_list(self):
         # 쉼표로 구분된 문자열을 리스트로 변환
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+        if isinstance(self.CORS_ORIGINS, str):
+            return [origin.strip() for origin in self.CORS_ORIGINS.strip("[]").replace('"', '').split(",")]
+        return self.CORS_ORIGINS
 
 settings = Settings()
