@@ -47,7 +47,8 @@ poetry run uvicorn src.main:app --reload
 ### API 엔드포인트
 
 - `POST /auth/signin` - 로그인
-- `POST /user/signup` - 회원가입
+- `POST /auth/signup` - 회원가입
+- `DELETE /auth/delete-account` - 회원 탈퇴 (이메일 검증)
 - `GET /auth/google` - Google OAuth 시작
 - `GET /auth/kakao` - Kakao OAuth 시작
 - `POST /auth/{provider}/callback` - OAuth 콜백 처리
