@@ -33,6 +33,7 @@ jobs:
       - name: SSH to EC2 and restart backend
         run: |
           ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
+          cp /home/ubuntu/.env.production /home/ubuntu/backend/.env.production  # ✅ 먼저 복사
           cd /home/ubuntu/backend
           docker stop backend || true
           docker rm backend || true
