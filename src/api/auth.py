@@ -326,6 +326,16 @@ async def signup(signup_data: SignupRequest, db: AsyncIOMotorDatabase = Depends(
     }
     
     result = await db.users.insert_one(new_user)
+    lessons = await db.Lessons.find().to_list(length=None)
+    progress_bulk = [{
+        "user_id": result.inserted_id,
+        "lesson_id": lesson["_id"],
+        "status": "not_started",
+        "updated_at": datetime.utcnow()
+    } for lesson in lessons]
+
+    if progress_bulk:
+        await db.Progress.insert_many(progress_bulk)
     new_user["_id"] = str(result.inserted_id)
     
     # 토큰 생성
