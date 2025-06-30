@@ -112,12 +112,12 @@ class UserService:
             _id=user_data["_id"],
             email=user_data["email"],
             nickname=user_data["nickname"],
-            handedness=user_data.get("handedness"),
+            handedness=user_data.get("handedness") or None,
             streak_days=user_data.get("streak_days", 0),
             overall_progress=user_data.get("overall_progress", 0),
             description=user_data.get("description"),
-            created_at=user_data["created_at"],
-            updated_at=user_data["updated_at"]
+            created_at=user_data.get("created_at", datetime.utcnow()),
+            updated_at=user_data.get("updated_at", datetime.utcnow())
         )
 
 # SQLAlchemy용 UserService (새로 추가)
