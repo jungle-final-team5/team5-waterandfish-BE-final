@@ -11,6 +11,22 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        
+      # .env.production 파일 생성
+      - name: Create .env.production
+        run: |
+          echo "MONGODB_URL=${{ secrets.MONGODB_URL }}" >> .env.production
+          echo "DATABASE_NAME=${{ secrets.DATABASE_NAME }}" >> .env.production
+          echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> .env.production
+          echo "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" >> .env.production
+          echo "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" >> .env.production
+          echo "KAKAO_CLIENT_ID=${{ secrets.KAKAO_CLIENT_ID }}" >> .env.production
+          echo "KAKAO_CLIENT_SECRET=${{ secrets.KAKAO_CLIENT_SECRET }}" >> .env.production
+          echo "ACCESS_TOKEN_EXPIRE_MINUTES=60" >> .env.production
+          echo "ALGORITHM=HS256" >> .env.production
+          echo "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}" >> .env.production
+          echo "KAKAO_REDIRECT_URI=${{ secrets.KAKAO_REDIRECT_URI }}" >> .env.production
+          echo "CORS_ORIGINS=[\"http://3.107.189.254\"]" >> .env.production
 
       # 개인 키를 key.pem으로 저장
       - name: Write SSH key
