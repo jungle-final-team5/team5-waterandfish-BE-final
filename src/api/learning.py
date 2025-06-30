@@ -174,4 +174,43 @@ async def get_chapters(category: str, db: AsyncIOMotorDatabase = Depends(get_db)
         "icon": "📚"
     }
 
-    return result 
+    return result
+
+@router.get("/progress/failures-by-username/{username}")
+async def get_failed_lessons_by_username(username: str,db: AsyncIOMotorDatabase = Depends(get_db)):
+    # 1) username으로 user 찾기
+    user = await db.users.find_one({"nickname": username})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user_id = user["_id"]
+
+    # 2) 해당 user_id로 실패한 progress 조회
+    failed_progresses = await db.Progress.find({
+        "user_id": user_id,
+        "status": "fail"
+    }).to_list(length=None)
+
+    # 3) lesson_id 목록 추출
+    lesson_ids = [p["lesson_id"] for p in failed_progresses]
+    if not lesson_ids:
+        return []
+
+    # 4) lesson_id로 Lessons 조회
+    lessons = await db.Lessons.find({
+        "_id": {"$in": lesson_ids}
+    }).to_list(length=None)
+
+    # 5) 각 레슨에 category 이름과 word 필드 추가
+    for lesson in lessons:
+        # chapter 정보 가져오기
+        chapter = await db.Chapters.find_one({"_id": lesson["chapterid"]})
+        category = await db.Category.find_one({"_id": chapter["category_id"]}) if chapter else None
+
+        # category 이름 추가
+        lesson["category"] = category["name"] if category else "Unknown"
+
+        # word 필드에 sign을 복사
+        lesson["word"] = lesson.get("sign", "")
+
+    # 6) ObjectId 변환 및 반환
+    return [convert_objectid(lesson) for lesson in lessons]

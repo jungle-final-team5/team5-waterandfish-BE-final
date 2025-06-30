@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     DATABASE_NAME: str
 
     class Config:
-        env_file = ".env"
+        env_file = "custom_env"
         env_file_encoding = "utf-8"
 
 settings = Settings()
