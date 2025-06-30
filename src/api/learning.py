@@ -77,11 +77,13 @@ async def create_lesson(request: Request, db: AsyncIOMotorDatabase = Depends(get
         raise HTTPException(status_code=404, detail="chapter not found")
     
     lesson = {
-        "sign": data["sign"],
+        "sign_text": data["sign"],
         "description": data["description"],
         "content_type": data["type"],
-        "order": data["order"],
-        "chapterid": chap["_id"]
+        "order_index": data["order"],
+        "chapter_id": chap["_id"],
+        "media_url": None,
+        "model_data_url": None
     }
     result = await db.Lessons.insert_one(lesson)
     created = await db.Lessons.find_one({"_id": result.inserted_id})
@@ -100,23 +102,23 @@ async def get_categories(db: AsyncIOMotorDatabase = Depends(get_db)):
         chapter_list = []
         for chapter in chapters:
             chapid = chapter["_id"]
-            signs = await db.Lessons.find({"chapterid": chapid}).to_list(length=None)
+            signs = await db.Lessons.find({"chapter_id": chapid}).to_list(length=None)
             
             # SignWord 형태로 변환
             sign_list = []
             for sign in signs:
                 sign_list.append({
                     "id": str(sign["_id"]),
-                    "word": sign["sign"],  # sign을 word로 매핑
+                    "word": sign.get("sign_text", ""),
                     "category": c["name"],
-                    "difficulty": "medium",  # 기본값
+                    "difficulty": "medium",
                     "description": sign.get("description", "")
                 })
             
             chapter_list.append({
                 "id": str(chapter["_id"]),
                 "title": chapter["title"],
-                "type": chapter["type"],
+                "type": chapter.get("type", None),  # type이 없으면 None 반환
                 "signs": sign_list,
                 "categoryId": str(category_id)
             })
@@ -145,23 +147,23 @@ async def get_chapters(category: str, db: AsyncIOMotorDatabase = Depends(get_db)
     chapterresult = []
     for c in chapters:
         chapid = c["_id"]
-        signs = await db.Lessons.find({"chapterid": chapid}).to_list(length=None)
+        signs = await db.Lessons.find({"chapter_id": chapid}).to_list(length=None)
         
         # SignWord 형태로 변환
         sign_list = []
         for sign in signs:
             sign_list.append({
                 "id": str(sign["_id"]),
-                "word": sign["sign"],  # sign을 word로 매핑
+                "word": sign.get("sign_text", ""),
                 "category": cate["name"],
-                "difficulty": "medium",  # 기본값
+                "difficulty": "medium",
                 "description": sign.get("description", "")
             })
         
         chapterresult.append({
             "id": str(c["_id"]),
             "title": c["title"],
-            "type": c["type"],
+            "type": c.get("type", None),  # type이 없으면 None 반환
             "signs": sign_list,
             "categoryId": str(obj_id)
         })
@@ -203,14 +205,14 @@ async def get_failed_lessons_by_username(username: str,db: AsyncIOMotorDatabase 
     # 5) 각 레슨에 category 이름과 word 필드 추가
     for lesson in lessons:
         # chapter 정보 가져오기
-        chapter = await db.Chapters.find_one({"_id": lesson["chapterid"]})
+        chapter = await db.Chapters.find_one({"_id": lesson["chapter_id"]})
         category = await db.Category.find_one({"_id": chapter["category_id"]}) if chapter else None
 
         # category 이름 추가
         lesson["category"] = category["name"] if category else "Unknown"
 
         # word 필드에 sign을 복사
-        lesson["word"] = lesson.get("sign", "")
+        lesson["word"] = lesson.get("sign_text", "")
 
     # 6) ObjectId 변환 및 반환
     return [convert_objectid(lesson) for lesson in lessons]
