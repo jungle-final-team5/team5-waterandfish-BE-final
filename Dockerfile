@@ -22,4 +22,4 @@ ENV PYTHONPATH=/app/src
 EXPOSE 8000
 
 # 7. FastAPI 앱 실행
-CMD ["uvicorn", "team5_waterandfish_be.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
