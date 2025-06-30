@@ -4,9 +4,9 @@ from pydantic import Field
 import os
 
 class Settings(BaseSettings):
-    # CORS 설정 (쉼표로 구분된 문자열 → List 자동 변환됨)
+    # CORS 설정 (쉼표로 구분된 문자열)
     CORS_ORIGINS: str = "http://localhost:5173"
-    
+
     # JWT 설정
     SECRET_KEY: str
     ALGORITHM: str
@@ -29,5 +29,10 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        # 쉼표로 구분된 문자열을 리스트로 변환
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
 settings = Settings()
