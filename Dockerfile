@@ -11,7 +11,7 @@ COPY pyproject.toml poetry.lock README.md ./
 
 # 4. 루트 패키지 포함 전체 의존성 설치
 RUN poetry config virtualenvs.create false \
-  && poetry install --no-interaction --no-ansi
+  && poetry install --no-root --no-interaction --no-ansi
 
 # 5. 실제 코드 복사
 COPY ./src ./src
