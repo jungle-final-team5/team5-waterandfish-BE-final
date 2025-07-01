@@ -3,6 +3,8 @@ name: Deploy Backend to EC2 (No Appleboy)
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]  
 
 jobs:
   deploy:
