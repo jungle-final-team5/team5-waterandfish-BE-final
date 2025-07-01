@@ -82,7 +82,7 @@ async def create_lesson(request: Request, db: AsyncIOMotorDatabase = Depends(get
         "content_type": data["type"],
         "order_index": data["order"],
         "chapter_id": chap["_id"],
-        "media_url": None,
+        "media_url": data["url"],
         "model_data_url": None
     }
     result = await db.Lessons.insert_one(lesson)
@@ -112,6 +112,7 @@ async def get_categories(db: AsyncIOMotorDatabase = Depends(get_db)):
                     "word": sign.get("sign_text", ""),
                     "category": c["name"],
                     "difficulty": "medium",
+                    "videoUrl": str(sign.get("media_url", "")),
                     "description": sign.get("description", "")
                 })
             
@@ -157,6 +158,7 @@ async def get_chapters(category: str, db: AsyncIOMotorDatabase = Depends(get_db)
                 "word": sign.get("sign_text", ""),
                 "category": cate["name"],
                 "difficulty": "medium",
+                "videoUrl": str(sign.get("media_url", "")),
                 "description": sign.get("description", "")
             })
         
