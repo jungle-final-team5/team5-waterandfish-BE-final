@@ -28,8 +28,7 @@ jobs:
           echo "ALGORITHM=HS256" >> .env.production
           echo "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}" >> .env.production
           echo "KAKAO_REDIRECT_URI=${{ secrets.KAKAO_REDIRECT_URI }}" >> .env.production
-          echo "CORS_ORIGINS=[\"http://3.107.189.254\"]" >> .env.production
-
+          echo "CORS_ORIGINS=[\"http://43.203.187.203\"]" >> .env.production
       # 개인 키를 key.pem으로 저장
       - name: Write SSH key
         run: |
