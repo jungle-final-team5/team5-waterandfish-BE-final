@@ -1,0 +1,59 @@
+name: Deploy Backend to EC2 (No Appleboy)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]  
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      # .env.production 파일 생성
+      - name: Create .env.production
+        run: |
+          echo "MONGODB_URL=${{ secrets.MONGODB_URL }}" >> .env.production
+          echo "DATABASE_NAME=${{ secrets.DATABASE_NAME }}" >> .env.production
+          echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> .env.production
+          echo "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" >> .env.production
+          echo "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" >> .env.production
+          echo "KAKAO_CLIENT_ID=${{ secrets.KAKAO_CLIENT_ID }}" >> .env.production
+          echo "KAKAO_CLIENT_SECRET=${{ secrets.KAKAO_CLIENT_SECRET }}" >> .env.production
+          echo "ACCESS_TOKEN_EXPIRE_MINUTES=60" >> .env.production
+          echo "ALGORITHM=HS256" >> .env.production
+          echo "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}" >> .env.production
+          echo "KAKAO_REDIRECT_URI=${{ secrets.KAKAO_REDIRECT_URI }}" >> .env.production
+          echo "CORS_ORIGINS=[\"http://43.203.187.203\"]" >> .env.production
+      # 개인 키를 key.pem으로 저장
+      - name: Write SSH key
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
+          sed -i 's/\\n/\n/g' key.pem
+          chmod 600 key.pem
+
+      # ✅ backend 폴더 삭제
+      - name: Clean remote backend directory
+        run: |
+          ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} 'sudo rm -rf /home/ubuntu/backend'
+
+      # EC2에 파일 복사
+      - name: Copy files to EC2
+        run: |
+          scp -i key.pem -o StrictHostKeyChecking=no -r ./ ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/backend
+
+      # EC2에 접속해서 컨테이너 재시작
+      - name: SSH to EC2 and restart backend
+        run: |
+          ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
+          cp /home/ubuntu/.env.production /home/ubuntu/backend/.env.production  # ✅ 먼저 복사
+          cd /home/ubuntu/backend
+          docker stop backend || true
+          docker rm backend || true
+          docker build -t backend-image .
+          docker run -d --name backend -p 8000:8000 backend-image
+          EOF
