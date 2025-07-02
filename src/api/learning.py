@@ -231,3 +231,44 @@ async def get_chapter(chapter_id: str,db: AsyncIOMotorDatabase = Depends(get_db)
     
     title = chapter.get("title", "기타")
     return {"type": title}
+@router.post("/result/letter")
+async def letterresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
+    data = await request.json()
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        if user_id is None or email is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token decode failed or expired")
+    
+    pletters = data.get("passed", [])
+    fletters = data.get("failed", [])
+    if(pletters and pletters[0] == 'ㄱ') or (fletters and fletters[0] == 'ㄱ'):
+        chapter_doc = await db.Chapters.find_one({"title": "자음"})
+        if not chapter_doc:
+            raise HTTPException(status_code=404, detail="자음 챕터를 찾을 수 없습니다")
+        chapid = chapter_doc["_id"]
+    elif (pletters and pletters[0] == 'ㅏ') or (fletters and fletters[0] == 'ㅏ'):
+        chapter_doc = await db.Chapters.find_one({"title": "모음"})
+        if not chapter_doc:
+            raise HTTPException(status_code=404, detail="모음 챕터를 찾을 수 없습니다")
+        chapid = chapter_doc["_id"]
+    presult = []
+    fresult = []
+    letters = await db.Lessons.find({"chapter_id": chapid}).to_list(length=None)
+    for letter in letters:
+        if letter["sign_text"] in pletters:
+            presult.append(letter["_id"])
+        elif letter["sign_text"] in fletters:
+            fresult.append(letter["_id"])
+    for ppro in presult:
+        await db.Progress.update_one({"user_id": ObjectId(user_id), "lesson_id": ppro},{"$set": {"status": "master"}})
+    for fpro in fresult:
+        await db.Progress.update_one({"user_id": ObjectId(user_id), "lesson_id": fpro},{"$set": {"status": "fail"}})
+    return {"passed": len(presult), "failed": len(fresult)}
