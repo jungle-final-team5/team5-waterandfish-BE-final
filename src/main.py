@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api import user_router
 from .api.auth import router as auth_router
 from .api.learning import router as learning_router
+from .api.badge import router as badge_router
 from .core.config import settings
 
 app = FastAPI()
@@ -22,4 +23,5 @@ def read_root():
 
 app.include_router(user_router)
 app.include_router(auth_router)
-app.include_router(learning_router) 
+app.include_router(learning_router)
+app.include_router(badge_router) 
