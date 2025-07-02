@@ -218,3 +218,16 @@ async def get_failed_lessons_by_username(username: str,db: AsyncIOMotorDatabase 
 
     # 6) ObjectId 변환 및 반환
     return [convert_objectid(lesson) for lesson in lessons]
+@router.get("/chapters/{chapter_id}")
+async def get_chapter(chapter_id: str,db: AsyncIOMotorDatabase = Depends(get_db)):
+    try:
+        oid = ObjectId(chapter_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="잘못된 챕터 ID입니다.")
+    
+    chapter = await db.Chapters.find_one({"_id": oid})
+    if not chapter:
+        raise HTTPException(status_code=404, detail="챕터를 찾을 수 없습니다.")
+    
+    title = chapter.get("title", "기타")
+    return {"type": title}
