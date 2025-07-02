@@ -126,7 +126,7 @@ async def google_auth_callback(code: str, db: AsyncIOMotorDatabase = Depends(get
             data={"sub": user["_id"], "email": user["email"]},
             expires_delta=refresh_token_expires
         )
-        response = RedirectResponse(url=f"http://localhost:5173/auth/callback?user_id={user['_id']}&email={user['email']}&nickname={user['nickname']}&handedness={user.get('handedness','')}&streak_days={user.get('streak_days',0)}&overall_progress={user.get('overall_progress',0)}&description={user.get('description','')}")
+        response = RedirectResponse(url=f"{settings.FRONTEND_URL}/auth/callback?user_id={user['_id']}&email={user['email']}&nickname={user['nickname']}&handedness={user.get('handedness','')}&streak_days={user.get('streak_days',0)}&overall_progress={user.get('overall_progress',0)}&description={user.get('description','')}")
         response.set_cookie(
             key="access_token",
             value=access_token,
@@ -170,7 +170,7 @@ async def kakao_auth_callback(code: str, db: AsyncIOMotorDatabase = Depends(get_
             data={"sub": user["_id"], "email": user["email"]},
             expires_delta=refresh_token_expires
         )
-        response = RedirectResponse(url=f"http://localhost:5173/auth/callback?user_id={user['_id']}&email={user['email']}&nickname={user['nickname']}&handedness={user.get('handedness','')}&streak_days={user.get('streak_days',0)}&overall_progress={user.get('overall_progress',0)}&description={user.get('description','')}")
+        response = RedirectResponse(url=f"{settings.FRONTEND_URL}/auth/callback?user_id={user['_id']}&email={user['email']}&nickname={user['nickname']}&handedness={user.get('handedness','')}&streak_days={user.get('streak_days',0)}&overall_progress={user.get('overall_progress',0)}&description={user.get('description','')}")
         response.set_cookie(
             key="access_token",
             value=access_token,

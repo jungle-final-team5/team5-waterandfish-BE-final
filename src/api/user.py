@@ -66,3 +66,41 @@ async def update_me(
     user_id = get_current_user_id(request)
     return await user_service.update_user(user_id, user_update)
 
+@router.put("/password")
+async def change_password(
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    user_id = get_current_user_id(request)
+    data = await request.json()
+    current_password = data.get("currentPassword")
+    new_password = data.get("newPassword")
+    if not current_password or not new_password:
+        raise HTTPException(status_code=400, detail="currentPassword와 newPassword가 필요합니다.")
+
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    stored_password = user.get("password_hash", "")
+    # bcrypt 해시가 아니면 평문 비교
+    verified = False
+    try:
+        verified = pwd_context.verify(current_password, stored_password)
+    except Exception:
+        # 해시가 아니면 평문 비교
+        if current_password == stored_password:
+            verified = True
+    if not verified:
+        raise HTTPException(status_code=400, detail="기존 비밀번호가 일치하지 않습니다.")
+
+    hashed_password = pwd_context.hash(new_password)
+    result = await db.users.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"password_hash": hashed_password}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="비밀번호 변경에 실패했습니다.")
+    return {"message": "비밀번호가 성공적으로 변경되었습니다."}
+
