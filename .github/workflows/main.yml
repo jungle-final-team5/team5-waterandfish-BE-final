@@ -30,6 +30,7 @@ jobs:
           echo "KAKAO_REDIRECT_URI=${{ secrets.KAKAO_REDIRECT_URI }}" >> .env.production
           echo "CORS_ORIGINS=[\"http://43.203.187.203\"]" >> .env.production
           echo "FRONTEND_URL=${{ secrets.FRONTEND_URL }}" >> .env.production
+
       # 개인 키를 key.pem으로 저장
       - name: Write SSH key
         run: |
@@ -37,11 +38,11 @@ jobs:
           sed -i 's/\\n/\n/g' key.pem
           chmod 600 key.pem
 
-      # ✅ backend 폴더 삭제
-      - name: Clean remote backend directory
+      # backend 폴더 삭제 후 재생성 및 소유권 변경
+      - name: Clean and prepare remote backend directory
         run: |
-          ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} 'sudo rm -rf /home/ubuntu/backend'
-
+          ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} 'sudo rm -rf /home/ubuntu/backend && mkdir /home/ubuntu/backend && sudo chown ubuntu:ubuntu /home/ubuntu/backend'
+      
       # EC2에 파일 복사
       - name: Copy files to EC2
         run: |
