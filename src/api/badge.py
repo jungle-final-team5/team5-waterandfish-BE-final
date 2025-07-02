@@ -5,10 +5,17 @@ from ..models.badge import Badge, UserBadge, BadgeWithStatus
 import jwt
 from ..core.config import settings
 from bson import ObjectId
+from bson.timestamp import Timestamp
 from typing import List
 import datetime
 
 router = APIRouter(prefix="/badge", tags=["badges"])
+
+def convert_timestamp(obj):
+    """MongoDB Timestamp를 datetime으로 변환"""
+    if isinstance(obj, Timestamp):
+        return datetime.datetime.fromtimestamp(obj.time)
+    return obj
 
 def get_current_user_id(request: Request) -> str:
     # Authorization 헤더 또는 쿠키에서 토큰 추출
@@ -58,7 +65,7 @@ async def get_badges_with_status(
     
     return result
 
-@router.get("/earned", response_model=List[BadgeWithStatus])
+@router.get("/earned")
 async def get_earned_badges(
     request: Request,
     db: AsyncIOMotorDatabase = Depends(get_db)
@@ -67,36 +74,21 @@ async def get_earned_badges(
     
     # 현재 사용자 ObjectId 획득
     user_id_str = get_current_user_id(request)
-    user_object_id = ObjectId(user_id_str)
+    #user_object_id = user_id_str
     
-    # 사용자가 획득한 배지 조회 (JOIN 형태)
-    pipeline = [
-        {"$match": {"userid": user_object_id}},
-        {"$lookup": {
-            "from": "badge",
-            "localField": "badge_id",
-            "foreignField": "id",
-            "as": "badge_info"
-        }},
-        {"$unwind": "$badge_info"}
-    ]
+    # users_badge 컴렉션에서 해당 사용자의 배지 조회
+    user_badges = await db.users_badge.find({"userid": user_id_str}).to_list(length=None)
     
-    earned_badges = await db.users_badge.aggregate(pipeline).to_list(length=None)
-    
+    # ObjectId를 문자열로 변환하여 반환
     result = []
-    for item in earned_badges:
-        badge = item["badge_info"]
-        result.append(BadgeWithStatus(
-            id=badge["id"],
-            code=badge["code"],
-            name=badge["name"],
-            description=badge["description"],
-            icon_url=badge["icon_url"],
-            is_earned=True,
-            userid=str(item["userid"]),
-            link=item["link"],
-            acquire=item["acquire"]
-        ))
+    for badge in user_badges:
+        result.append({
+            "_id": str(badge["_id"]),
+            "badge_id": badge["badge_id"],
+            "userid": str(badge["userid"]),
+            "link": badge["link"],
+            "acquire": convert_timestamp(badge["acquire"])
+        })
     
     return result
 
@@ -143,3 +135,25 @@ async def earn_badge(
         "badge_id": badge_id,
         "acquire": user_badge["acquire"]
     }
+
+@router.get("/all-earned")
+async def get_all_earned_badges(
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """모든 users_badge 데이터 조건 없이 가져오기"""
+    
+    # users_badge 컬렉션에서 모든 데이터 조회
+    all_user_badges = await db.users_badge.find().to_list(length=None)
+    
+    # ObjectId와 Timestamp를 문자열로 변환하여 반환
+    result = []
+    for badge in all_user_badges:
+        result.append({
+            "_id": str(badge["_id"]),
+            "badge_id": badge["badge_id"],
+            "userid": str(badge["userid"]),
+            "link": badge["link"],
+            "acquire": convert_timestamp(badge["acquire"])
+        })
+    
+    return result
