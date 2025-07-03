@@ -1,7 +1,8 @@
 from sentence_transformers import SentenceTransformer
 from pymongo import MongoClient, UpdateOne
+from core.config import settings
 
-URI  = "mongodb+srv://sehyun5004:qwe123@waterandfish.uxyepd5.mongodb.net/?retryWrites=true&w=majority"
+URI  = settings.MONGODB_URL
 DB, COL = "waterandfish", "Lessons"
 BATCH = 100
 model = SentenceTransformer("intfloat/multilingual-e5-base")
