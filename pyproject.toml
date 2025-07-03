@@ -4,6 +4,9 @@ version = "0.1.0"
 description = ""
 authors = ["sweeetpotaooo <sehyun5004@naver.com>"]
 readme = "README.md"
+packages = [
+    { include = "*", from = "src" }
+]
 
 [tool.poetry.dependencies]
 python = ">=3.9"
@@ -18,6 +21,13 @@ pydantic-settings = ">=2.0.0,<3.0.0"
 bcrypt = "4.0.1"
 passlib = {version = "1.7.4", extras = ["bcrypt"]}
 sqlalchemy = ">=2.0.0,<3.0.0"
+numpy = ">=1.23.0,<2.0.0"
+torch = "2.2.2"
+sentence-transformers = "<3.0.0"
+safetensors = "^0.5.3"
+
+[tool.poetry.group.dev.dependencies]
+pymongo = "^4.13.2"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
