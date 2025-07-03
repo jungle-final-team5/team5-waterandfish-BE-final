@@ -122,9 +122,10 @@ async def get_categories(db: AsyncIOMotorDatabase = Depends(get_db)):
             chapter_list.append({
                 "id": str(chapter["_id"]),
                 "title": chapter["title"],
-                "type": chapter.get("type", None),  # type이 없으면 None 반환
+                "type": chapter.get("type", None),
                 "signs": sign_list,
-                "categoryId": str(category_id)
+                "categoryId": str(category_id),
+                "order_index": chapter.get("order", chapter.get("order_index", 0))
             })
         
         results.append({
@@ -132,7 +133,8 @@ async def get_categories(db: AsyncIOMotorDatabase = Depends(get_db)):
             "title": c["name"],
             "description": c["description"],
             "chapters": chapter_list,
-            "icon": "📚"  # 기본 아이콘
+            "icon": "📚",
+            "order_index": c.get("order", c.get("order_index", 0))
         })
     return results
 
@@ -168,9 +170,10 @@ async def get_chapters(category: str, db: AsyncIOMotorDatabase = Depends(get_db)
         chapterresult.append({
             "id": str(c["_id"]),
             "title": c["title"],
-            "type": c.get("type", None),  # type이 없으면 None 반환
+            "type": c.get("type", None),
             "signs": sign_list,
-            "categoryId": str(obj_id)
+            "categoryId": str(obj_id),
+            "order_index": c.get("order", c.get("order_index", 0))
         })
 
     result = {
@@ -178,7 +181,8 @@ async def get_chapters(category: str, db: AsyncIOMotorDatabase = Depends(get_db)
         "title": cate["name"],
         "description": cate["description"],
         "chapters": chapterresult,
-        "icon": "📚"
+        "icon": "📚",
+        "order_index": cate.get("order", cate.get("order_index", 0))
     }
 
     return result
