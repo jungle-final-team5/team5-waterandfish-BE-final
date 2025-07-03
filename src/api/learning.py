@@ -1,12 +1,11 @@
-from fastapi import APIRouter, Request, HTTPException, Depends, Cookie
+from datetime import datetime, timedelta
+from fastapi import APIRouter, Request, HTTPException, Depends, applications, Cookie
 from fastapi.responses import JSONResponse
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..db.session import get_db
-from datetime import datetime, timedelta
 from jose import jwt, JWTError
 from ..core.config import settings
-
 router = APIRouter(prefix="/learning", tags=["learning"])
 
 CHAPTER_TYPES = ["word", "sentence"]
@@ -240,6 +239,101 @@ async def get_chapter(chapter_id: str,db: AsyncIOMotorDatabase = Depends(get_db)
     title = chapter.get("title", "기타")
     return {"type": title}
 
+@router.post("/result/letter")
+async def letterresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
+    data = await request.json()
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        if user_id is None or email is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token decode failed or expired")
+    
+    pletters = data.get("passed", [])
+    fletters = data.get("failed", [])
+    if(pletters and pletters[0] == 'ㄱ') or (fletters and fletters[0] == 'ㄱ'):
+        chapter_doc = await db.Chapters.find_one({"title": "자음"})
+        if not chapter_doc:
+            raise HTTPException(status_code=404, detail="자음 챕터를 찾을 수 없습니다")
+        chapid = chapter_doc["_id"]
+    elif (pletters and pletters[0] == 'ㅏ') or (fletters and fletters[0] == 'ㅏ'):
+        chapter_doc = await db.Chapters.find_one({"title": "모음"})
+        if not chapter_doc:
+            raise HTTPException(status_code=404, detail="모음 챕터를 찾을 수 없습니다")
+        chapid = chapter_doc["_id"]
+    presult = []
+    fresult = []
+    letters = await db.Lessons.find({"chapter_id": chapid}).to_list(length=None)
+    for letter in letters:
+        if letter["sign_text"] in pletters:
+            presult.append(letter["_id"])
+        elif letter["sign_text"] in fletters:
+            fresult.append(letter["_id"])
+    for ppro in presult:
+        await db.Progress.update_one({"user_id": ObjectId(user_id), "lesson_id": ppro},{"$set": {"status": "master"}})
+    for fpro in fresult:
+        await db.Progress.update_one({"user_id": ObjectId(user_id), "lesson_id": fpro},{"$set": {"status": "fail"}})
+    return {"passed": len(presult), "failed": len(fresult)}
+@router.post("/study/session")
+async def sessionstudy(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
+    data = await request.json()
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        if user_id is None or email is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token decode failed or expired")
+    lesson_ids = [ObjectId(lesson_id) for lesson_id in data]
+    await db.User_Lesson_Progress.update_many(
+        {
+            "user_id": ObjectId(user_id),
+            "lesson_id": {"$in": lesson_ids},
+            "status": {"$in": ["not_started"]}
+        },
+        {"$set": {"status": "study"}}
+    )
+    return JSONResponse(status_code=201, content={"message": "study complete"})
+@router.post("/result/session")
+async def letterresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
+    data = await request.json()
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        if user_id is None or email is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token decode failed or expired")
+    
+    for result in data:
+        signid = ObjectId(result.get("signId"))
+        correct = result.get("correct")
+        status = "quiz_correct" if correct else "quiz_wrong"
+        await db.User_Lesson_Progress.find_one_and_update({
+                "user_id": ObjectId(user_id),
+                "lesson_id": signid
+            },
+            {
+                "$set": {"status": status}
+            })
+    return JSONResponse(status_code=201, content={"message": "quiz complete"})
+
+
 # 기존 learning router는 그대로 두고, streak API만 별도 user_daily_activity_router로 분리
 user_daily_activity_router = APIRouter(prefix="/user/daily-activity", tags=["user_daily_activity"])
 
@@ -331,3 +425,4 @@ async def complete_today_activity(request: Request, db=Depends(get_db), access_t
             "updated_at": datetime.utcnow()
         })
     return {"message": "오늘 활동이 기록되었습니다."}
+
