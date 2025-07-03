@@ -1,5 +1,5 @@
-from datetime import datetime
-from fastapi import APIRouter, Request, HTTPException, Depends,applications
+from datetime import datetime, timedelta
+from fastapi import APIRouter, Request, HTTPException, Depends, applications, Cookie
 from fastapi.responses import JSONResponse
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -121,9 +121,10 @@ async def get_categories(db: AsyncIOMotorDatabase = Depends(get_db)):
             chapter_list.append({
                 "id": str(chapter["_id"]),
                 "title": chapter["title"],
-                "type": chapter.get("type", None),  # type이 없으면 None 반환
+                "type": chapter.get("type", None),
                 "signs": sign_list,
-                "categoryId": str(category_id)
+                "categoryId": str(category_id),
+                "order_index": chapter.get("order", chapter.get("order_index", 0))
             })
         
         results.append({
@@ -131,7 +132,8 @@ async def get_categories(db: AsyncIOMotorDatabase = Depends(get_db)):
             "title": c["name"],
             "description": c["description"],
             "chapters": chapter_list,
-            "icon": "📚"  # 기본 아이콘
+            "icon": "📚",
+            "order_index": c.get("order", c.get("order_index", 0))
         })
     return results
 
@@ -167,9 +169,10 @@ async def get_chapters(category: str, db: AsyncIOMotorDatabase = Depends(get_db)
         chapterresult.append({
             "id": str(c["_id"]),
             "title": c["title"],
-            "type": c.get("type", None),  # type이 없으면 None 반환
+            "type": c.get("type", None),
             "signs": sign_list,
-            "categoryId": str(obj_id)
+            "categoryId": str(obj_id),
+            "order_index": c.get("order", c.get("order_index", 0))
         })
 
     result = {
@@ -177,7 +180,8 @@ async def get_chapters(category: str, db: AsyncIOMotorDatabase = Depends(get_db)
         "title": cate["name"],
         "description": cate["description"],
         "chapters": chapterresult,
-        "icon": "📚"
+        "icon": "📚",
+        "order_index": cate.get("order", cate.get("order_index", 0))
     }
 
     return result
@@ -220,6 +224,7 @@ async def get_failed_lessons_by_username(username: str,db: AsyncIOMotorDatabase 
 
     # 6) ObjectId 변환 및 반환
     return [convert_objectid(lesson) for lesson in lessons]
+
 @router.get("/chapters/{chapter_id}")
 async def get_chapter(chapter_id: str,db: AsyncIOMotorDatabase = Depends(get_db)):
     try:
@@ -233,6 +238,7 @@ async def get_chapter(chapter_id: str,db: AsyncIOMotorDatabase = Depends(get_db)
     
     title = chapter.get("title", "기타")
     return {"type": title}
+
 @router.post("/result/letter")
 async def letterresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
     token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
@@ -326,3 +332,97 @@ async def letterresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_d
                 "$set": {"status": status}
             })
     return JSONResponse(status_code=201, content={"message": "quiz complete"})
+
+
+# 기존 learning router는 그대로 두고, streak API만 별도 user_daily_activity_router로 분리
+user_daily_activity_router = APIRouter(prefix="/user/daily-activity", tags=["user_daily_activity"])
+
+@user_daily_activity_router.get("/streak")
+async def get_streak(request: Request, db=Depends(get_db), access_token: str = Cookie(None)):
+    # 1. user_id 추출
+    token = access_token or request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="No access token provided")
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="No user id in token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid access token")
+
+    # 2. 활동 날짜 리스트 조회
+    activities = await db.user_daily_activity.find(
+        {"user_id": ObjectId(user_id), "has_activity": True}
+    ).sort("activity_date", 1).to_list(length=None)
+    study_dates = [a["activity_date"].strftime("%Y-%m-%d") for a in activities]
+    date_list = [a["activity_date"].date() for a in activities]
+
+    # 3. streak 계산 함수 (가장 최근 날짜부터 연속 streak 계산)
+    def calculate_streaks(dates):
+        if not dates:
+            return 0, 0
+        # longest streak
+        max_streak = 1
+        temp_streak = 1
+        prev = dates[0]
+        for i in range(1, len(dates)):
+            if (dates[i] - prev).days == 1:
+                temp_streak += 1
+            else:
+                temp_streak = 1
+            if temp_streak > max_streak:
+                max_streak = temp_streak
+            prev = dates[i]
+        # current streak: 가장 최근 날짜부터 연속 streak 계산
+        current_streak = 1 if dates else 0
+        for i in range(len(dates)-1, 0, -1):
+            if (dates[i] - dates[i-1]).days == 1:
+                current_streak += 1
+            else:
+                break
+        return current_streak, max_streak
+
+    current_streak, longest_streak = calculate_streaks(date_list)
+
+    return {
+        "studyDates": study_dates,
+        "currentStreak": current_streak,
+        "longestStreak": longest_streak
+    }
+
+@user_daily_activity_router.post("/complete")
+async def complete_today_activity(request: Request, db=Depends(get_db), access_token: str = Cookie(None)):
+    # 1. user_id 추출
+    token = access_token or request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="No access token provided")
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="No user id in token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid access token")
+
+    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    result = await db.user_daily_activity.update_one(
+        {"user_id": ObjectId(user_id), "activity_date": today},
+        {
+            "$set": {
+                "has_activity": True,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    if result.matched_count == 0:
+        # 오늘 출석 레코드가 없으면 새로 생성
+        await db.user_daily_activity.insert_one({
+            "user_id": ObjectId(user_id),
+            "activity_date": today,
+            "has_activity": True,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        })
+    return {"message": "오늘 활동이 기록되었습니다."}
+
