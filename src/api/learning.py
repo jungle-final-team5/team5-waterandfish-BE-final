@@ -239,6 +239,123 @@ async def get_chapter(chapter_id: str,db: AsyncIOMotorDatabase = Depends(get_db)
     title = chapter.get("title", "기타")
     return {"type": title}
 
+# 프로그레스 관련
+# 카테고리 프로그레스 생성
+@router.post("/progress/category/set")
+async def progresscategoryset(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
+    data = await request.json()
+    categoryid = ObjectId(data.get("categoryid"))
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        if user_id is None or email is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token decode failed or expired")
+    category_progress = await db.User_Category_Progress.find_one({
+        "user_id": ObjectId(user_id),
+        "category_id": categoryid
+    })
+
+    if category_progress:
+        # 이미 존재하면 아무 작업도 하지 않음
+        return JSONResponse(status_code=200, content={"message": "Already initialized"})
+        # 없으면 새로 생성
+    await db.User_Category_Progress.insert_one({
+        "user_id": ObjectId(user_id),
+        "category_id": categoryid,
+        "complete": False,
+        "complete_at": None
+    })
+    return JSONResponse(status_code=201, content={"message": "Progress initialized"})
+#챕터 프로그레스 및 레슨 프로그레스 생성
+@router.post("/progress/chapter/set")
+async def progressset(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
+    data = await request.json()
+    chapid = ObjectId(data.get("chapid"))
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        if user_id is None or email is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token decode failed or expired")
+    chapter_progress = await db.User_Chapter_Progress.find_one({
+        "user_id": ObjectId(user_id),
+        "chapter_id": chapid
+    })
+
+    if chapter_progress:
+        return JSONResponse(status_code=200, content={"message": "Already initialized"})
+        # 이미 존재하면 아무 작업도 하지 않음
+        # 없으면 새로 생성
+    await db.User_Chapter_Progress.insert_one({
+        "user_id": ObjectId(user_id),
+        "chapter_id": chapid,
+        "complete": False,
+        "complete_at": None
+    })
+    lessons = await db.Lessons.find({"chapter_id": chapid}).to_list(length=None)
+    progress_bulk = [{
+        "user_id": ObjectId(user_id),
+        "lesson_id": lesson["_id"],
+        "status": "not_started",
+        "updated_at": datetime.utcnow()
+    } for lesson in lessons]
+
+    if progress_bulk:
+        await db.User_Lesson_Progress.insert_many(progress_bulk)
+    return JSONResponse(status_code=201, content={"message": "Progress initialized"})
+#프로그레스 study
+@router.post("/study/letter")
+async def letterstudy(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
+    data = await request.json()
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        if user_id is None or email is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token decode failed or expired")
+    cletters = data.get("checked", [])
+    if not cletters:
+        raise HTTPException(status_code=400, detail="학습한 글자가 없습니다")
+    if(cletters[0] == "ㄱ"):
+        chapter_doc = await db.Chapters.find_one({"title": "자음"})
+        if not chapter_doc:
+            raise HTTPException(status_code=404, detail="자음 챕터를 찾을 수 없습니다")
+        chapid = chapter_doc["_id"]
+    elif(cletters[0] == "ㅏ"):
+        chapter_doc = await db.Chapters.find_one({"title": "모음"})
+        if not chapter_doc:
+            raise HTTPException(status_code=404, detail="모음 챕터를 찾을 수 없습니다")
+        chapid = chapter_doc["_id"]
+    letters = await db.Lessons.find({"chapter_id": chapid}).to_list(length=None)
+    letter_ids = [lesson["_id"] for lesson in letters]
+    await db.User_Lesson_Progress.update_many(
+    {
+        "user_id": ObjectId(user_id),
+        "lesson_id": {"$in": letter_ids},
+        "status": {"$in": ["not_started"]}
+    },
+    {"$set": {"status": "study"}}
+    )
+    return JSONResponse(status_code=201, content={"message": "study complete"})
+#progress quiz
 @router.post("/result/letter")
 async def letterresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
     token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
@@ -275,10 +392,20 @@ async def letterresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_d
             presult.append(letter["_id"])
         elif letter["sign_text"] in fletters:
             fresult.append(letter["_id"])
-    for ppro in presult:
-        await db.Progress.update_one({"user_id": ObjectId(user_id), "lesson_id": ppro},{"$set": {"status": "master"}})
-    for fpro in fresult:
-        await db.Progress.update_one({"user_id": ObjectId(user_id), "lesson_id": fpro},{"$set": {"status": "fail"}})
+    await db.User_Lesson_Progress.update_many(
+        {
+            "user_id": ObjectId(user_id),
+            "lesson_id": {"$in": presult}
+        },
+        {"$set": {"status": "quiz_correct"}}
+    )
+    await db.User_Lesson_Progress.update_many(
+    {
+        "user_id": ObjectId(user_id),
+        "lesson_id": {"$in": fresult}
+    },
+    {"$set": {"status": "quiz_wrong"}}
+    )
     return {"passed": len(presult), "failed": len(fresult)}
 @router.post("/study/session")
 async def sessionstudy(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
