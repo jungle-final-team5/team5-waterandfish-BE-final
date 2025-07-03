@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Request, HTTPException, Depends
+from datetime import datetime
+from fastapi import APIRouter, Request, HTTPException, Depends,applications
 from fastapi.responses import JSONResponse
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..db.session import get_db
-
+from jose import jwt, JWTError
+from ..core.config import settings
 router = APIRouter(prefix="/learning", tags=["learning"])
 
 CHAPTER_TYPES = ["word", "sentence"]
@@ -272,3 +274,55 @@ async def letterresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_d
     for fpro in fresult:
         await db.Progress.update_one({"user_id": ObjectId(user_id), "lesson_id": fpro},{"$set": {"status": "fail"}})
     return {"passed": len(presult), "failed": len(fresult)}
+@router.post("/study/session")
+async def sessionstudy(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
+    data = await request.json()
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        if user_id is None or email is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token decode failed or expired")
+    lesson_ids = [ObjectId(lesson_id) for lesson_id in data]
+    await db.User_Lesson_Progress.update_many(
+        {
+            "user_id": ObjectId(user_id),
+            "lesson_id": {"$in": lesson_ids},
+            "status": {"$in": ["not_started"]}
+        },
+        {"$set": {"status": "study"}}
+    )
+    return JSONResponse(status_code=201, content={"message": "study complete"})
+@router.post("/result/session")
+async def letterresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
+    data = await request.json()
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        if user_id is None or email is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token decode failed or expired")
+    
+    for result in data:
+        signid = ObjectId(result.get("signId"))
+        correct = result.get("correct")
+        status = "quiz_correct" if correct else "quiz_wrong"
+        await db.User_Lesson_Progress.find_one_and_update({
+                "user_id": ObjectId(user_id),
+                "lesson_id": signid
+            },
+            {
+                "$set": {"status": status}
+            })
+    return JSONResponse(status_code=201, content={"message": "quiz complete"})
