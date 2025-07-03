@@ -39,3 +39,4 @@ htmlcov/
 *.swo 
 
 venv/
+.python-version
