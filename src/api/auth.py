@@ -57,6 +57,18 @@ class SignupRequest(BaseModel):
 async def auth_test():
     return {"message": "auth router is working!"}
 
+async def ensure_today_activity(user_id, db):
+    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    record = await db.user_daily_activity.find_one({
+        "user_id": ObjectId(user_id),
+        "activity_date": today
+    })
+    if not record:
+        await db.user_daily_activity.insert_one({
+            "user_id": ObjectId(user_id),
+            "activity_date": today,
+            "has_activity": False,
+        })
 # 로그인: POST /auth/signin
 @router.post("/signin")
 async def signin(login_data: LoginRequest, db: AsyncIOMotorDatabase = Depends(get_db)):
@@ -65,6 +77,8 @@ async def signin(login_data: LoginRequest, db: AsyncIOMotorDatabase = Depends(ge
         raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 잘못되었습니다.")
     if not verify_password(login_data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 잘못되었습니다.")
+    # 로그인 성공 시 오늘 출석 레코드 생성
+    await ensure_today_activity(user["_id"], db)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     refresh_token_expires = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     access_token = create_access_token(
@@ -120,6 +134,8 @@ async def google_auth_callback(code: str, db: AsyncIOMotorDatabase = Depends(get
         result = await social_auth.google_oauth(code)
         access_token = result["access_token"]
         user = result["user"]
+        # 출석 레코드 생성
+        await ensure_today_activity(user["_id"], db)
         # refresh_token 생성
         refresh_token_expires = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
         refresh_token = create_refresh_token(
@@ -164,6 +180,8 @@ async def kakao_auth_callback(code: str, db: AsyncIOMotorDatabase = Depends(get_
         result = await social_auth.kakao_oauth(code)
         access_token = result["access_token"]
         user = result["user"]
+        # 출석 레코드 생성
+        await ensure_today_activity(user["_id"], db)
         # refresh_token 생성
         refresh_token_expires = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
         refresh_token = create_refresh_token(

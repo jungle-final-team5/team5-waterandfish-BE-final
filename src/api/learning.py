@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Request, HTTPException, Depends
+from datetime import datetime, timedelta
+from fastapi import APIRouter, Request, HTTPException, Depends, applications, Cookie
 from fastapi.responses import JSONResponse
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..db.session import get_db
-
+from jose import jwt, JWTError
+from ..core.config import settings
 router = APIRouter(prefix="/learning", tags=["learning"])
 
 CHAPTER_TYPES = ["word", "sentence"]
@@ -119,9 +121,10 @@ async def get_categories(db: AsyncIOMotorDatabase = Depends(get_db)):
             chapter_list.append({
                 "id": str(chapter["_id"]),
                 "title": chapter["title"],
-                "type": chapter.get("type", None),  # type이 없으면 None 반환
+                "type": chapter.get("type", None),
                 "signs": sign_list,
-                "categoryId": str(category_id)
+                "categoryId": str(category_id),
+                "order_index": chapter.get("order", chapter.get("order_index", 0))
             })
         
         results.append({
@@ -129,7 +132,8 @@ async def get_categories(db: AsyncIOMotorDatabase = Depends(get_db)):
             "title": c["name"],
             "description": c["description"],
             "chapters": chapter_list,
-            "icon": "📚"  # 기본 아이콘
+            "icon": "📚",
+            "order_index": c.get("order", c.get("order_index", 0))
         })
     return results
 
@@ -165,9 +169,10 @@ async def get_chapters(category: str, db: AsyncIOMotorDatabase = Depends(get_db)
         chapterresult.append({
             "id": str(c["_id"]),
             "title": c["title"],
-            "type": c.get("type", None),  # type이 없으면 None 반환
+            "type": c.get("type", None),
             "signs": sign_list,
-            "categoryId": str(obj_id)
+            "categoryId": str(obj_id),
+            "order_index": c.get("order", c.get("order_index", 0))
         })
 
     result = {
@@ -175,7 +180,8 @@ async def get_chapters(category: str, db: AsyncIOMotorDatabase = Depends(get_db)
         "title": cate["name"],
         "description": cate["description"],
         "chapters": chapterresult,
-        "icon": "📚"
+        "icon": "📚",
+        "order_index": cate.get("order", cate.get("order_index", 0))
     }
 
     return result
@@ -218,6 +224,7 @@ async def get_failed_lessons_by_username(username: str,db: AsyncIOMotorDatabase 
 
     # 6) ObjectId 변환 및 반환
     return [convert_objectid(lesson) for lesson in lessons]
+
 @router.get("/chapters/{chapter_id}")
 async def get_chapter(chapter_id: str,db: AsyncIOMotorDatabase = Depends(get_db)):
     try:
@@ -231,3 +238,318 @@ async def get_chapter(chapter_id: str,db: AsyncIOMotorDatabase = Depends(get_db)
     
     title = chapter.get("title", "기타")
     return {"type": title}
+
+# 프로그레스 관련
+# 카테고리 프로그레스 생성
+@router.post("/progress/category/set")
+async def progresscategoryset(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
+    data = await request.json()
+    categoryid = ObjectId(data.get("categoryid"))
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        if user_id is None or email is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token decode failed or expired")
+    category_progress = await db.User_Category_Progress.find_one({
+        "user_id": ObjectId(user_id),
+        "category_id": categoryid
+    })
+
+    if category_progress:
+        # 이미 존재하면 아무 작업도 하지 않음
+        return JSONResponse(status_code=200, content={"message": "Already initialized"})
+        # 없으면 새로 생성
+    await db.User_Category_Progress.insert_one({
+        "user_id": ObjectId(user_id),
+        "category_id": categoryid,
+        "complete": False,
+        "complete_at": None
+    })
+    return JSONResponse(status_code=201, content={"message": "Progress initialized"})
+#챕터 프로그레스 및 레슨 프로그레스 생성
+@router.post("/progress/chapter/set")
+async def progressset(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
+    data = await request.json()
+    chapid = ObjectId(data.get("chapid"))
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        if user_id is None or email is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token decode failed or expired")
+    chapter_progress = await db.User_Chapter_Progress.find_one({
+        "user_id": ObjectId(user_id),
+        "chapter_id": chapid
+    })
+
+    if chapter_progress:
+        return JSONResponse(status_code=200, content={"message": "Already initialized"})
+        # 이미 존재하면 아무 작업도 하지 않음
+        # 없으면 새로 생성
+    await db.User_Chapter_Progress.insert_one({
+        "user_id": ObjectId(user_id),
+        "chapter_id": chapid,
+        "complete": False,
+        "complete_at": None
+    })
+    lessons = await db.Lessons.find({"chapter_id": chapid}).to_list(length=None)
+    progress_bulk = [{
+        "user_id": ObjectId(user_id),
+        "lesson_id": lesson["_id"],
+        "status": "not_started",
+        "updated_at": datetime.utcnow()
+    } for lesson in lessons]
+
+    if progress_bulk:
+        await db.User_Lesson_Progress.insert_many(progress_bulk)
+    return JSONResponse(status_code=201, content={"message": "Progress initialized"})
+#프로그레스 study
+@router.post("/study/letter")
+async def letterstudy(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
+    data = await request.json()
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        if user_id is None or email is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token decode failed or expired")
+    cletters = data.get("checked", [])
+    if not cletters:
+        raise HTTPException(status_code=400, detail="학습한 글자가 없습니다")
+    if(cletters[0] == "ㄱ"):
+        chapter_doc = await db.Chapters.find_one({"title": "자음"})
+        if not chapter_doc:
+            raise HTTPException(status_code=404, detail="자음 챕터를 찾을 수 없습니다")
+        chapid = chapter_doc["_id"]
+    elif(cletters[0] == "ㅏ"):
+        chapter_doc = await db.Chapters.find_one({"title": "모음"})
+        if not chapter_doc:
+            raise HTTPException(status_code=404, detail="모음 챕터를 찾을 수 없습니다")
+        chapid = chapter_doc["_id"]
+    letters = await db.Lessons.find({"chapter_id": chapid}).to_list(length=None)
+    letter_ids = [lesson["_id"] for lesson in letters]
+    await db.User_Lesson_Progress.update_many(
+    {
+        "user_id": ObjectId(user_id),
+        "lesson_id": {"$in": letter_ids},
+        "status": {"$in": ["not_started"]}
+    },
+    {"$set": {"status": "study"}}
+    )
+    return JSONResponse(status_code=201, content={"message": "study complete"})
+#progress quiz
+@router.post("/result/letter")
+async def letterresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
+    data = await request.json()
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        if user_id is None or email is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token decode failed or expired")
+    
+    pletters = data.get("passed", [])
+    fletters = data.get("failed", [])
+    if(pletters and pletters[0] == 'ㄱ') or (fletters and fletters[0] == 'ㄱ'):
+        chapter_doc = await db.Chapters.find_one({"title": "자음"})
+        if not chapter_doc:
+            raise HTTPException(status_code=404, detail="자음 챕터를 찾을 수 없습니다")
+        chapid = chapter_doc["_id"]
+    elif (pletters and pletters[0] == 'ㅏ') or (fletters and fletters[0] == 'ㅏ'):
+        chapter_doc = await db.Chapters.find_one({"title": "모음"})
+        if not chapter_doc:
+            raise HTTPException(status_code=404, detail="모음 챕터를 찾을 수 없습니다")
+        chapid = chapter_doc["_id"]
+    presult = []
+    fresult = []
+    letters = await db.Lessons.find({"chapter_id": chapid}).to_list(length=None)
+    for letter in letters:
+        if letter["sign_text"] in pletters:
+            presult.append(letter["_id"])
+        elif letter["sign_text"] in fletters:
+            fresult.append(letter["_id"])
+    await db.User_Lesson_Progress.update_many(
+        {
+            "user_id": ObjectId(user_id),
+            "lesson_id": {"$in": presult}
+        },
+        {"$set": {"status": "quiz_correct"}}
+    )
+    await db.User_Lesson_Progress.update_many(
+    {
+        "user_id": ObjectId(user_id),
+        "lesson_id": {"$in": fresult}
+    },
+    {"$set": {"status": "quiz_wrong"}}
+    )
+    return {"passed": len(presult), "failed": len(fresult)}
+@router.post("/study/session")
+async def sessionstudy(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
+    data = await request.json()
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        if user_id is None or email is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token decode failed or expired")
+    lesson_ids = [ObjectId(lesson_id) for lesson_id in data]
+    await db.User_Lesson_Progress.update_many(
+        {
+            "user_id": ObjectId(user_id),
+            "lesson_id": {"$in": lesson_ids},
+            "status": {"$in": ["not_started"]}
+        },
+        {"$set": {"status": "study"}}
+    )
+    return JSONResponse(status_code=201, content={"message": "study complete"})
+@router.post("/result/session")
+async def letterresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
+    data = await request.json()
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        if user_id is None or email is None:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token decode failed or expired")
+    
+    for result in data:
+        signid = ObjectId(result.get("signId"))
+        correct = result.get("correct")
+        status = "quiz_correct" if correct else "quiz_wrong"
+        await db.User_Lesson_Progress.find_one_and_update({
+                "user_id": ObjectId(user_id),
+                "lesson_id": signid
+            },
+            {
+                "$set": {"status": status}
+            })
+    return JSONResponse(status_code=201, content={"message": "quiz complete"})
+
+
+# 기존 learning router는 그대로 두고, streak API만 별도 user_daily_activity_router로 분리
+user_daily_activity_router = APIRouter(prefix="/user/daily-activity", tags=["user_daily_activity"])
+
+@user_daily_activity_router.get("/streak")
+async def get_streak(request: Request, db=Depends(get_db), access_token: str = Cookie(None)):
+    # 1. user_id 추출
+    token = access_token or request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="No access token provided")
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="No user id in token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid access token")
+
+    # 2. 활동 날짜 리스트 조회
+    activities = await db.user_daily_activity.find(
+        {"user_id": ObjectId(user_id), "has_activity": True}
+    ).sort("activity_date", 1).to_list(length=None)
+    study_dates = [a["activity_date"].strftime("%Y-%m-%d") for a in activities]
+    date_list = [a["activity_date"].date() for a in activities]
+
+    # 3. streak 계산 함수 (가장 최근 날짜부터 연속 streak 계산)
+    def calculate_streaks(dates):
+        if not dates:
+            return 0, 0
+        # longest streak
+        max_streak = 1
+        temp_streak = 1
+        prev = dates[0]
+        for i in range(1, len(dates)):
+            if (dates[i] - prev).days == 1:
+                temp_streak += 1
+            else:
+                temp_streak = 1
+            if temp_streak > max_streak:
+                max_streak = temp_streak
+            prev = dates[i]
+        # current streak: 가장 최근 날짜부터 연속 streak 계산
+        current_streak = 1 if dates else 0
+        for i in range(len(dates)-1, 0, -1):
+            if (dates[i] - dates[i-1]).days == 1:
+                current_streak += 1
+            else:
+                break
+        return current_streak, max_streak
+
+    current_streak, longest_streak = calculate_streaks(date_list)
+
+    return {
+        "studyDates": study_dates,
+        "currentStreak": current_streak,
+        "longestStreak": longest_streak
+    }
+
+@user_daily_activity_router.post("/complete")
+async def complete_today_activity(request: Request, db=Depends(get_db), access_token: str = Cookie(None)):
+    # 1. user_id 추출
+    token = access_token or request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="No access token provided")
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="No user id in token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid access token")
+
+    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    result = await db.user_daily_activity.update_one(
+        {"user_id": ObjectId(user_id), "activity_date": today},
+        {
+            "$set": {
+                "has_activity": True,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    if result.matched_count == 0:
+        # 오늘 출석 레코드가 없으면 새로 생성
+        await db.user_daily_activity.insert_one({
+            "user_id": ObjectId(user_id),
+            "activity_date": today,
+            "has_activity": True,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        })
+    return {"message": "오늘 활동이 기록되었습니다."}
+

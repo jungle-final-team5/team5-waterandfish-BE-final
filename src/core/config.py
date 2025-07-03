@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:5173"
     
     # 프론트엔드 URL 설정 (배포 환경용)
-    FRONTEND_URL: str = "http://localhost:5173"
+    FRONTEND_URL: str
 
     # JWT 설정
     SECRET_KEY: str

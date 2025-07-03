@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api import user_router
 from .api.auth import router as auth_router
 from .api.learning import router as learning_router
+from .api.learning import user_daily_activity_router  # streak API 라우터 추가
 from .api.badge import router as badge_router
 from .api.search import router as search_router
 from .core.config import settings
@@ -27,3 +28,4 @@ app.include_router(auth_router)
 app.include_router(learning_router)
 app.include_router(badge_router)
 app.include_router(search_router)
+app.include_router(user_daily_activity_router)  # streak API 라우터 등록 
