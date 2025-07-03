@@ -346,15 +346,7 @@ async def letterstudy(request: Request,db: AsyncIOMotorDatabase = Depends(get_db
         chapid = chapter_doc["_id"]
     letters = await db.Lessons.find({"chapter_id": chapid}).to_list(length=None)
     letter_ids = [lesson["_id"] for lesson in letters]
-    await db.User_Lesson_Progress.update_many(
-    {
-        "user_id": ObjectId(user_id),
-        "lesson_id": {"$in": letter_ids},
-        "status": {"$in": ["not_started"]}
-    },
-    {"$set": {"status": "study"}}
-    )
-    return JSONResponse(status_code=201, content={"message": "study complete"})
+    return JSONResponse(status_code=201, content={"message": "study started"})
 #progress quiz
 @router.post("/result/letter")
 async def letterresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
@@ -392,20 +384,32 @@ async def letterresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_d
             presult.append(letter["_id"])
         elif letter["sign_text"] in fletters:
             fresult.append(letter["_id"])
-    await db.User_Lesson_Progress.update_many(
-        {
-            "user_id": ObjectId(user_id),
-            "lesson_id": {"$in": presult}
-        },
-        {"$set": {"status": "quiz_correct"}}
-    )
-    await db.User_Lesson_Progress.update_many(
-    {
-        "user_id": ObjectId(user_id),
-        "lesson_id": {"$in": fresult}
-    },
-    {"$set": {"status": "quiz_wrong"}}
-    )
+    # 모두 정답이면 quiz_correct, 하나라도 오답이면 quiz_wrong
+    if pletters and not fletters:
+        await db.User_Lesson_Progress.update_many(
+            {
+                "user_id": ObjectId(user_id),
+                "lesson_id": {"$in": presult}
+            },
+            {"$set": {"status": "quiz_correct", "updated_at": datetime.utcnow()}}
+        )
+    elif fletters:
+        await db.User_Lesson_Progress.update_many(
+            {
+                "user_id": ObjectId(user_id),
+                "lesson_id": {"$in": presult + fresult}
+            },
+            {"$set": {"status": "quiz_wrong", "updated_at": datetime.utcnow()}}
+        )
+    elif not pletters and not fletters:
+        await db.User_Lesson_Progress.update_many(
+            {
+                "user_id": ObjectId(user_id),
+                "lesson_id": {"$in": [lesson["_id"] for lesson in letters]},
+                "status": {"$in": ["not_started"]}
+            },
+            {"$set": {"status": "study", "updated_at": datetime.utcnow()}}
+        )
     return {"passed": len(presult), "failed": len(fresult)}
 @router.post("/study/session")
 async def sessionstudy(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
@@ -422,17 +426,17 @@ async def sessionstudy(request: Request,db: AsyncIOMotorDatabase = Depends(get_d
     except JWTError:
         raise HTTPException(status_code=401, detail="Token decode failed or expired")
     lesson_ids = [ObjectId(lesson_id) for lesson_id in data]
+    # 학습 완료 처리: status를 'study', updated_at을 현재로 업데이트
     await db.User_Lesson_Progress.update_many(
         {
             "user_id": ObjectId(user_id),
-            "lesson_id": {"$in": lesson_ids},
-            "status": {"$in": ["not_started"]}
+            "lesson_id": {"$in": lesson_ids}
         },
-        {"$set": {"status": "study"}}
+        {"$set": {"status": "study", "updated_at": datetime.utcnow()}}
     )
-    return JSONResponse(status_code=201, content={"message": "study complete"})
+    return JSONResponse(status_code=201, content={"message": "study started"})
 @router.post("/result/session")
-async def letterresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+async def sessionresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
     token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
     data = await request.json()
     if not token:
@@ -447,19 +451,78 @@ async def letterresult(request: Request,db: AsyncIOMotorDatabase = Depends(get_d
     except JWTError:
         raise HTTPException(status_code=401, detail="Token decode failed or expired")
     
+    correct_ids = []
+    wrong_ids = []
     for result in data:
         signid = ObjectId(result.get("signId"))
         correct = result.get("correct")
-        status = "quiz_correct" if correct else "quiz_wrong"
-        await db.User_Lesson_Progress.find_one_and_update({
-                "user_id": ObjectId(user_id),
-                "lesson_id": signid
-            },
+        if correct:
+            correct_ids.append(signid)
+        else:
+            wrong_ids.append(signid)
+    # 모두 정답이면 quiz_correct, 하나라도 오답이면 quiz_wrong
+    if correct_ids and not wrong_ids:
+        await db.User_Lesson_Progress.update_many(
             {
-                "$set": {"status": status}
-            })
+                "user_id": ObjectId(user_id),
+                "lesson_id": {"$in": correct_ids}
+            },
+            {"$set": {"status": "quiz_correct", "updated_at": datetime.utcnow()}}
+        )
+    elif wrong_ids:
+        await db.User_Lesson_Progress.update_many(
+            {
+                "user_id": ObjectId(user_id),
+                "lesson_id": {"$in": correct_ids + wrong_ids}
+            },
+            {"$set": {"status": "quiz_wrong", "updated_at": datetime.utcnow()}}
+        )
+    elif not data:
+        await db.User_Lesson_Progress.update_many(
+            {
+                "user_id": ObjectId(user_id),
+                "status": {"$in": ["not_started"]}
+            },
+            {"$set": {"status": "study", "updated_at": datetime.utcnow()}}
+        )
     return JSONResponse(status_code=201, content={"message": "quiz complete"})
 
+@router.get("/recent-learning")
+async def get_recent_learning(request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="No access token provided")
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="No user id in token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid access token")
+
+    # last_event_at 기준으로 정렬
+    progress = await db.User_Lesson_Progress.find({
+        "user_id": ObjectId(user_id)
+    }).sort("last_event_at", -1).limit(1).to_list(length=1)
+    if not progress:
+        return {"category": None, "chapter": None}
+    lesson_id = progress[0]["lesson_id"]
+    # 2. 레슨 정보
+    lesson = await db.Lessons.find_one({"_id": lesson_id})
+    if not lesson:
+        return {"category": None, "chapter": None}
+    # 3. 챕터 정보
+    chapter = await db.Chapters.find_one({"_id": lesson["chapter_id"]})
+    if not chapter:
+        return {"category": None, "chapter": None}
+    # 4. 카테고리 정보
+    category = await db.Category.find_one({"_id": chapter["category_id"]})
+    if not category:
+        return {"category": None, "chapter": chapter["title"]}
+    return {
+        "category": category["name"],
+        "chapter": chapter["title"]
+    }
 
 # 기존 learning router는 그대로 두고, streak API만 별도 user_daily_activity_router로 분리
 user_daily_activity_router = APIRouter(prefix="/user/daily-activity", tags=["user_daily_activity"])
@@ -553,3 +616,22 @@ async def complete_today_activity(request: Request, db=Depends(get_db), access_t
         })
     return {"message": "오늘 활동이 기록되었습니다."}
 
+@router.post("/progress/lesson/event")
+async def update_lesson_event(request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")
+    data = await request.json()
+    lesson_ids = [ObjectId(lid) for lid in data.get("lesson_ids", [])]
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not found")
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="No user id in token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid access token")
+    await db.User_Lesson_Progress.update_many(
+        {"user_id": ObjectId(user_id), "lesson_id": {"$in": lesson_ids}},
+        {"$set": {"last_event_at": datetime.utcnow()}}
+    )
+    return {"message": "last_event_at updated"}
