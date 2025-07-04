@@ -12,6 +12,9 @@ class PyObjectId(ObjectId):
     def __get_pydantic_core_schema__(cls, source_type, handler):
         return handler(ObjectId)
 
+class SimpleInput(BaseModel):
+    input_str: str
+
 # Badge 기본 정보 (전체 배지 목록)
 class Badge(BaseModel):
     id: int
