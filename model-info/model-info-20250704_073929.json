@@ -1,0 +1,56 @@
+{
+  "model_path": "models/sign_language_model_20250704_073929.keras",
+  "created_at": "2025-07-04T08:09:32.824543",
+  "labels": [
+    "아들이 놀이터에서 놀다가 팔이 부러졌어요",
+    "아이를 공원에서 잃어버렸어요",
+    "어떤 사람한테 납치당했어요",
+    "친구가 음식을 먹다가 실수로 방부제를 같이 먹었어요",
+    "None"
+  ],
+  "label_mapping": {
+    "아들이 놀이터에서 놀다가 팔이 부러졌어요": 0,
+    "아이를 공원에서 잃어버렸어요": 1,
+    "어떤 사람한테 납치당했어요": 2,
+    "친구가 음식을 먹다가 실수로 방부제를 같이 먹었어요": 3,
+    "None": 4
+  },
+  "num_classes": 5,
+  "input_shape": [
+    30,
+    675
+  ],
+  "training_stats": {
+    "total_samples": 796,
+    "train_samples": 636,
+    "test_samples": 160,
+    "augmentations_per_video": 3,
+    "target_sequence_length": 30,
+    "model_parameters": {
+      "lstm_units_1": 128,
+      "lstm_units_2": 64,
+      "dense_units": 32,
+      "dropout_rate": 0.3,
+      "l2_regularization": true,
+      "batch_normalization": true
+    },
+    "training_parameters": {
+      "learning_rate": 0.001,
+      "batch_size": 8,
+      "early_stopping_patience": 10,
+      "early_stopping_min_delta": 0.001,
+      "reduce_lr_patience": 3
+    },
+    "test_loss": 0.0036725648678839207,
+    "test_accuracy": 1.0,
+    "class_accuracies": {
+      "아들이 놀이터에서 놀다가 팔이 부러졌어요": 1.0,
+      "아이를 공원에서 잃어버렸어요": 1.0,
+      "어떤 사람한테 납치당했어요": 1.0,
+      "친구가 음식을 먹다가 실수로 방부제를 같이 먹었어요": 1.0,
+      "None": 1.0
+    }
+  },
+  "model_type": "LSTM",
+  "description": "수어 인식 모델 - LSTM 기반"
+}
