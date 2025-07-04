@@ -46,11 +46,10 @@ async def collect_user_stats(db: AsyncIOMotorDatabase, user_id: ObjectId) -> Dic
     stats = {}
     
     # 학습 진도 통계
-    progress_count = await db.Progress.count_documents({
-        "user_id": user_id,
-        "status": "completed"
-    })
-    stats["completed_lessons"] = progress_count
+    progress_count = await db.User_Lesson_Progress.count_documents({ "user_id": user_id, "status": {"$ne": "not_started"}})
+    stats["total_words"] = progress_count
+    chapter_count = await db.User_Chapter_Progress.count_documents({ "user_id": user_id, "complete": {"$ne": "false"}})
+    stats["total_chapter"] = chapter_count
     
     # 연속 학습일 통계
     user_activity = await db.user_daily_activity.find_one({"user_id": user_id})
@@ -59,28 +58,15 @@ async def collect_user_stats(db: AsyncIOMotorDatabase, user_id: ObjectId) -> Dic
     # 사용자 기본 정보
     user = await db.users.find_one({"_id": user_id})
     if user:
-        stats["created_at"] = user.get("created_at")
-        stats["overall_progress"] = user.get("overall_progress", 0)
-    
-    return stats
-
-async def check_badge_condition(badge: Dict, user_stats: Dict) -> bool:
-    """배지 획득 조건 확인"""
-    try:
-        rule_json = badge.get("rule_json", "{}")
-        if isinstance(rule_json, str):
-            rule_json = json.loads(rule_json)
-        # 이미 dict면 그대로 사용
-        event = rule_json.get("event")
-
-        # 사용자 가입일과 오늘 날짜 차이 계산
-        created_at = user_stats.get("created_at")
+        
+        days_since_created = 0
+        created_at = user.get("created_at")
         if created_at:
             today = datetime.datetime.now()
             if isinstance(created_at, datetime.datetime):
                 days_since_created = (today - created_at).days
             else:
-                # created_at이 문자열인 경우 datetime으로 변환
+            # created_at이 문자열인 경우 datetime으로 변환
                 try:
                     created_date = datetime.datetime.fromisoformat(str(created_at).replace('Z', '+00:00'))
                     days_since_created = (today - created_date).days
@@ -88,27 +74,58 @@ async def check_badge_condition(badge: Dict, user_stats: Dict) -> bool:
                     days_since_created = 0
         else:
             days_since_created = 0
+        stats["start_at"] = days_since_created
+    
+    return stats
 
-        if event == "createPastWeek":
-            required_days = rule_json.get("days", 7)
-            return days_since_created >= required_days
-        elif event == "createPastMonth":
-            required_days = rule_json.get("days", 30)
-            return days_since_created >= required_days
-        elif event == "createPastYear":
-            required_days = rule_json.get("days", 365)
-            return days_since_created >= required_days
-                    
-        # if event == "first_lesson":
-        #     return user_stats.get("completed_lessons", 0) >= 1
-        # elif event == "ten_lessons":
-        #     return user_stats.get("completed_lessons", 0) >= 10
-        # elif event == "goal_streak":
-        #     required_days = rule_json.get("days", 30)
-        #     return user_stats.get("streak_days", 0) >= required_days
-        # elif event == "progress_milestone":
-        #     required_progress = rule_json.get("progress", 50)
-        #     return user_stats.get("overall_progress", 0) >= required_progress
+async def check_badge_condition(badge: Dict, user_stats: Dict) -> bool:
+    """배지 획득 조건 확인"""
+    try:
+        badge_code = badge.get("code")
+        badge_cond = badge.get("rule_json", {}).get("value")
+        print("i require :")
+        print(badge_code)
+        print(badge_cond)
+        
+        start_at = user_stats.get("start_at")
+        total_words = user_stats.get("total_words")
+        total_chapter = user_stats.get("total_chapter")
+        streak_days = user_stats.get("streak_days")
+
+        if badge_code == "day_streak_3":
+            return streak_days >= badge_cond
+        elif badge_code == "day_streak_7":
+            return streak_days >= badge_cond
+        elif badge_code == "day_streak_14":
+            return streak_days >= badge_cond
+        
+        elif badge_code == "done_word_1":
+            return total_words >= badge_cond
+        elif badge_code == "done_word_20":
+            return total_words >= badge_cond
+        elif badge_code == "done_word_40":
+            return total_words >= badge_cond
+        
+        elif badge_code == "done_chapter_3":
+            return total_chapter >= badge_cond
+        elif badge_code == "done_chapter_6":
+            return total_chapter >= badge_cond
+        elif badge_code == "done_chapter_12":
+            return total_chapter >= badge_cond
+        
+        elif badge_code == "id_created_7d":
+            return start_at >= badge_cond
+        elif badge_code == "id_created_14d":
+            return start_at >= badge_cond
+        elif badge_code == "id_created_28d":
+            return start_at >= badge_cond
+        
+        # elif badge_code == "epic_1":
+        #     return start_at >= badge_cond
+        # elif badge_code == "epic_2":
+        #     return start_at >= badge_cond
+        # elif badge_code == "epic_3":
+        #     return start_at >= badge_cond
         
         return False
     except (json.JSONDecodeError, KeyError):
@@ -230,15 +247,26 @@ async def check_and_award_badges(
 ):
     user_id_str = get_current_user_id(request)
     user_object_id = ObjectId(user_id_str)
+   
 
-    if input_data.input_str == "dayCheck":
-        # TODO : 여기서 받은 인자에 따라 값을 업데이트를 시키면 된다.
-        # await db.users.update_one(
-        #     {"_id": user_object_id},
-        #     {"$set": {"overall_progress": 100}}
-        # )
-        pass
-    
+    # TODO : 여기서 받은 인자에 따라 값을 업데이트를 시킨다.
+        # 왜 주석? : 현재 수행 갯수에 대한 내용이 users 단일 레코드가 아니라 users_**_** 컬렉션들로 구성되어 있음. 
+        # 분명 리팩토리 대상이고, 해당 내용 리팩토링 시 아래 코드가 사용 될 것으로 기대..
+
+    # if input_data.input_str == "day":
+    #     # 최초 출석 시 호출됨. 기존에 호출된적 없는지에 대한 안전 장치 없음
+    #     current_streak = user_data.get("streak_days", 0)
+    #     new_streak = current_streak + 1
+    #     await db.users.update_one({"_id": user_object_id}, {"$set": {"streak_days": new_streak}})
+    # elif input_data.input_str == "word":
+    #     # 단어 수행 시 호출
+    # elif input_data.input_str == "chapter":
+    #     # 챕터 수행 시 호출 됨. 기존에 수행한 챕터가 아니어야합니다.
+    # elif input_data.input_str == "account":
+    #     pass
+    # else:
+    #     pass
+
     user_stats = await collect_user_stats(db, user_object_id)
     """사용자 활동을 확인하고 새로운 배지 획득 처리"""
 
