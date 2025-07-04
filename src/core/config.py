@@ -6,6 +6,7 @@ import os
 class Settings(BaseSettings):
     # CORS 설정 (쉼표로 구분된 문자열)
     CORS_ORIGINS: str = "http://localhost:5173"
+    root_path: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
     # 프론트엔드 URL 설정 (배포 환경용)
     FRONTEND_URL: str

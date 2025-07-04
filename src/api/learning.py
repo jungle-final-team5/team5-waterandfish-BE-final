@@ -6,6 +6,8 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..db.session import get_db
 from jose import jwt, JWTError
 from ..core.config import settings
+from ..services.ml_service import deploy_model
+
 router = APIRouter(prefix="/learning", tags=["learning"])
 
 CHAPTER_TYPES = ["word", "sentence"]
@@ -295,12 +297,14 @@ async def progresscategoryset(request: Request,db: AsyncIOMotorDatabase = Depend
         "complete_at": None
     })
     return JSONResponse(status_code=201, content={"message": "Progress initialized"})
+
 #챕터 프로그레스 및 레슨 프로그레스 생성
 @router.post("/progress/chapter/set")
 async def progressset(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
     token = request.cookies.get("access_token")  # 쿠키 이름 확인 필요
     data = await request.json()
     chapid = ObjectId(data.get("chapid"))
+    ws_urls = await deploy_model(chapter_id=chapid, db=db)
     if not token:
         raise HTTPException(status_code=401, detail="Token not found")
     
@@ -318,9 +322,10 @@ async def progressset(request: Request,db: AsyncIOMotorDatabase = Depends(get_db
     })
 
     if chapter_progress:
-        return JSONResponse(status_code=200, content={"message": "Already initialized"})
         # 이미 존재하면 아무 작업도 하지 않음
-        # 없으면 새로 생성
+        return JSONResponse(status_code=200, content={"message": "Already initialized", "ws_urls": ws_urls})
+        
+    # 없으면 새로 생성
     await db.User_Chapter_Progress.insert_one({
         "user_id": ObjectId(user_id),
         "chapter_id": chapid,
@@ -337,7 +342,8 @@ async def progressset(request: Request,db: AsyncIOMotorDatabase = Depends(get_db
 
     if progress_bulk:
         await db.User_Lesson_Progress.insert_many(progress_bulk)
-    return JSONResponse(status_code=201, content={"message": "Progress initialized"})
+    return JSONResponse(status_code=201, content={"message": "Progress initialized", "ws_urls": ws_urls})
+
 #프로그레스 study
 @router.post("/study/letter")
 async def letterstudy(request: Request,db: AsyncIOMotorDatabase = Depends(get_db)):
