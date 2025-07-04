@@ -1,0 +1,53 @@
+{
+  "model_path": "models/sign_language_model_20250704_064642.keras",
+  "created_at": "2025-07-04T07:07:51.500471",
+  "labels": [
+    "집에 불이 났어요",
+    "집에 전기가 나갔어요",
+    "집이 흔들려요",
+    "None"
+  ],
+  "label_mapping": {
+    "집에 불이 났어요": 0,
+    "집에 전기가 나갔어요": 1,
+    "집이 흔들려요": 2,
+    "None": 3
+  },
+  "num_classes": 4,
+  "input_shape": [
+    30,
+    675
+  ],
+  "training_stats": {
+    "total_samples": 640,
+    "train_samples": 512,
+    "test_samples": 128,
+    "augmentations_per_video": 3,
+    "target_sequence_length": 30,
+    "model_parameters": {
+      "lstm_units_1": 128,
+      "lstm_units_2": 64,
+      "dense_units": 32,
+      "dropout_rate": 0.3,
+      "l2_regularization": true,
+      "batch_normalization": true
+    },
+    "training_parameters": {
+      "learning_rate": 0.001,
+      "batch_size": 8,
+      "early_stopping_patience": 10,
+      "early_stopping_min_delta": 0.001,
+      "reduce_lr_patience": 3
+    },
+    "test_loss": 0.004264709539711475,
+    "test_accuracy": 1.0,
+    "class_accuracies": {
+      "집에 불이 났어요": 1.0,
+      "집에 전기가 나갔어요": 1.0,
+      "집이 흔들려요": 1.0,
+      "None": 1.0
+    }
+  },
+  "model_type": "LSTM",
+  "description": "수어 인식 모델 - LSTM 기반"
+}

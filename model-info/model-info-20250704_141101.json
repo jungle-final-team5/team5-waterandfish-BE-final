@@ -1,0 +1,53 @@
+{
+  "model_path": "models/sign_language_model_20250704_141101.keras",
+  "created_at": "2025-07-04T14:26:46.142431",
+  "labels": [
+    "호흡기",
+    "숨을안쉬다",
+    "허벅지",
+    "None"
+  ],
+  "label_mapping": {
+    "호흡기": 0,
+    "숨을안쉬다": 1,
+    "허벅지": 2,
+    "None": 3
+  },
+  "num_classes": 4,
+  "input_shape": [
+    30,
+    675
+  ],
+  "training_stats": {
+    "total_samples": 640,
+    "train_samples": 512,
+    "test_samples": 128,
+    "augmentations_per_video": 3,
+    "target_sequence_length": 30,
+    "model_parameters": {
+      "lstm_units_1": 128,
+      "lstm_units_2": 64,
+      "dense_units": 32,
+      "dropout_rate": 0.3,
+      "l2_regularization": true,
+      "batch_normalization": true
+    },
+    "training_parameters": {
+      "learning_rate": 0.001,
+      "batch_size": 8,
+      "early_stopping_patience": 10,
+      "early_stopping_min_delta": 0.001,
+      "reduce_lr_patience": 3
+    },
+    "test_loss": 0.0004919460043311119,
+    "test_accuracy": 1.0,
+    "class_accuracies": {
+      "호흡기": 1.0,
+      "숨을안쉬다": 1.0,
+      "허벅지": 1.0,
+      "None": 1.0
+    }
+  },
+  "model_type": "LSTM",
+  "description": "수어 인식 모델 - LSTM 기반"
+}
