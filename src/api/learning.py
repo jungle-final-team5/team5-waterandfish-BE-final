@@ -10,7 +10,10 @@ router = APIRouter(prefix="/learning", tags=["learning"])
 
 CHAPTER_TYPES = ["word", "sentence"]
 LESSON_TYPE = ["letter", "word", "sentence"]
-
+PROGRESS_TYPE = ["not_started","learned","quiz_wrong","quiz_correct","review pending","reviewed"]
+def serialize_lesson(lesson):
+    lesson['_id'] = str(lesson['_id'])  # ObjectId를 문자열로
+    return lesson
 # ObjectId를 JSON에 맞게 문자열로 변환
 def convert_objectid(doc):
     if isinstance(doc, list):
@@ -27,45 +30,52 @@ def convert_objectid(doc):
         return new_doc
     return doc
 
+#카테고리 챕터 레슨 생성
+# 카테고리 생성
 @router.post("/category")
 async def create_category(request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
     data = await request.json()
-    if "name" not in data or "description" not in data or "order" not in data:
+    if "title" not in data or "description" not in data:
         raise HTTPException(status_code=400, detail="Missing 'name', 'description' or 'order'")
     
     categories = {
-        "name": data["name"],
+        "name": data["title"],
         "description": data["description"],
-        "order": data["order"]
+        "order": 0,
+        "created_at": datetime.utcnow()
     }
     result = await db.Category.insert_one(categories)
     created = await db.Category.find_one({"_id": result.inserted_id})
+    if "created_at" in created:
+        del created["created_at"]
     return JSONResponse(content=convert_objectid(created))
-
+#챕터 생성
 @router.post("/chapter")
 async def create_chapter(request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
     data = await request.json()
     
-    if "title" not in data or "description" not in data or "categoryname" not in data or "order" not in data or "type" not in data:
+    if "title" not in data or "categoryid" not in data  or "type" not in data:
         raise HTTPException(status_code=400, detail="Missing required fields")
     if data["type"] not in CHAPTER_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid type: {data['type']}")
     
-    cate = await db.Category.find_one({"name": data["categoryname"]})
+    cate = await db.Category.find_one({"_id": ObjectId(data["categoryid"])})
     if not cate:
         raise HTTPException(status_code=404, detail="category not found")
     
     chapters = {
-        "title": data["title"],
-        "description": data["description"],
-        "type": data["type"],
         "category_id": cate["_id"],
-        "order": data["order"]
+        "title": data["title"],
+        "lesson_type": data["type"],
+        "order_index": 0,
+        "description": None,
+        "created_at": datetime.utcnow()
     }
     result = await db.Chapters.insert_one(chapters)
     created = await db.Chapters.find_one({"_id": result.inserted_id})
+    created.pop("created_at", None)
     return JSONResponse(content=convert_objectid(created))
-
+#레슨 생성
 @router.post("/lesson")
 async def create_lesson(request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
     data = await request.json()
@@ -79,17 +89,33 @@ async def create_lesson(request: Request, db: AsyncIOMotorDatabase = Depends(get
         raise HTTPException(status_code=404, detail="chapter not found")
     
     lesson = {
+        "chapter_id": chap["_id"],
         "sign_text": data["sign"],
         "description": data["description"],
         "content_type": data["type"],
-        "order_index": data["order"],
-        "chapter_id": chap["_id"],
         "media_url": data["url"],
-        "model_data_url": None
+        "model_data_url": None,
+        "order_index": data["order"],
+        "created_at": datetime.utcnow()
     }
     result = await db.Lessons.insert_one(lesson)
     created = await db.Lessons.find_one({"_id": result.inserted_id})
     return JSONResponse(content=convert_objectid(created))
+#챕터 구성 변경
+@router.post("/connect/lesson")
+async def connectlesson(request:Request,db: AsyncIOMotorDatabase = Depends(get_db)):
+    data = await request.json()
+    chapter_id = ObjectId(data.get("chapter"))
+    lesson_ids = data.get("lesson", [])
+    lesson_oids = [ObjectId(lid) for lid in lesson_ids]
+    await db.Lessons.update_many(
+    {"chapter_id": chapter_id},
+    {"$set": {"chapter_id": None}}
+    )
+    await db.Lessons.update_many(
+    {"_id": {"$in": lesson_oids}},
+    {"$set": {"chapter_id": chapter_id}}
+    )
 
 @router.get("/categories")
 async def get_categories(db: AsyncIOMotorDatabase = Depends(get_db)):
@@ -136,7 +162,23 @@ async def get_categories(db: AsyncIOMotorDatabase = Depends(get_db)):
             "order_index": c.get("order", c.get("order_index", 0))
         })
     return results
+@router.get("/chapter/all")
+async def get_all_chap(db: AsyncIOMotorDatabase = Depends(get_db)):
+    chapters = await db.Chapters.find().to_list(length=None)
 
+    return {"chapters": chapters}
+@router.get("/lesson/all")
+async def get_all_lesson(db: AsyncIOMotorDatabase = Depends(get_db)):
+    lessons = await db.Lessons.find().to_list(length=None)
+    transformed = [{
+        "id": str(lesson["_id"]),
+        "chapterId": str(lesson["chapter_id"]),
+        "word": lesson.get("sign_text", ""),
+        "type": lesson.get("content_type", "")
+        # 필요하면 필드를 더 추가하거나 변환 가능
+    } for lesson in lessons]
+
+    return {"lessons": transformed}
 @router.get("/chapter/{category}")
 async def get_chapters(category: str, db: AsyncIOMotorDatabase = Depends(get_db)):
     try:
