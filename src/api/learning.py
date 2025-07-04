@@ -170,6 +170,7 @@ async def get_categories(request: Request, db: AsyncIOMotorDatabase = Depends(ge
             "description": c["description"],
             "chapters": chapter_list,
             "icon": "📚",
+            "emoji": c.get("emoji", "📚"),
             "order_index": c.get("order", c.get("order_index", 0))
         })
     return results
