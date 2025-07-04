@@ -1,7 +1,7 @@
 # src/api/search.py
 from fastapi import APIRouter, Query, HTTPException
 from motor.motor_asyncio import AsyncIOMotorClient
-from services.embedding import embed
+from ..services.embedding import embed
 from ..core.config import settings
 
 router = APIRouter(prefix="/search", tags=["search"])

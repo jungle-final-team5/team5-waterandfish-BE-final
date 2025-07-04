@@ -23,9 +23,18 @@ app.add_middleware(
 def read_root():
     return {"message": "Hello, team5-waterandfish-BE!"}
 
+# 기존 경로 유지 (하위 호환성)
 app.include_router(user_router)
 app.include_router(auth_router)
 app.include_router(learning_router)
 app.include_router(badge_router)
 app.include_router(search_router)
-app.include_router(user_daily_activity_router)  # streak API 라우터 등록 
+app.include_router(user_daily_activity_router)  # streak API 라우터 등록
+
+# API prefix 추가 (새로운 경로)
+app.include_router(user_router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
+app.include_router(learning_router, prefix="/api")
+app.include_router(badge_router, prefix="/api")
+app.include_router(search_router, prefix="/api")
+app.include_router(user_daily_activity_router, prefix="/api")  # streak API 라우터 등록 
