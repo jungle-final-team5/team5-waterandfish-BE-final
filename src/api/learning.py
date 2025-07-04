@@ -92,21 +92,33 @@ async def create_lesson(request: Request, db: AsyncIOMotorDatabase = Depends(get
     return JSONResponse(content=convert_objectid(created))
 
 @router.get("/categories")
-async def get_categories(db: AsyncIOMotorDatabase = Depends(get_db)):
+async def get_categories(request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")
+    user_id = None
+    if token:
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            user_id = payload.get("sub")
+        except JWTError:
+            pass
     categories = await db.Category.find().to_list(length=None)
-    
     results = []
     for c in categories:
         category_id = c["_id"]
         chapters = await db.Chapters.find({"category_id": category_id}).to_list(length=None)
-        
-        # 각 챕터의 signs 가져오기
         chapter_list = []
         for chapter in chapters:
             chapid = chapter["_id"]
             signs = await db.Lessons.find({"chapter_id": chapid}).to_list(length=None)
-            
-            # SignWord 형태로 변환
+            lesson_ids = [sign["_id"] for sign in signs]
+            lesson_status_map = {}
+            if user_id and lesson_ids:
+                progresses = await db.User_Lesson_Progress.find({
+                    "user_id": ObjectId(user_id),
+                    "lesson_id": {"$in": lesson_ids}
+                }).to_list(length=None)
+                for p in progresses:
+                    lesson_status_map[str(p["lesson_id"])] = p.get("status", "not_started")
             sign_list = []
             for sign in signs:
                 sign_list.append({
@@ -115,9 +127,9 @@ async def get_categories(db: AsyncIOMotorDatabase = Depends(get_db)):
                     "category": c["name"],
                     "difficulty": "medium",
                     "videoUrl": str(sign.get("media_url", "")),
-                    "description": sign.get("description", "")
+                    "description": sign.get("description", ""),
+                    "status": lesson_status_map.get(str(sign["_id"]), "not_started")
                 })
-            
             chapter_list.append({
                 "id": str(chapter["_id"]),
                 "title": chapter["title"],
@@ -126,7 +138,6 @@ async def get_categories(db: AsyncIOMotorDatabase = Depends(get_db)):
                 "categoryId": str(category_id),
                 "order_index": chapter.get("order", chapter.get("order_index", 0))
             })
-        
         results.append({
             "id": str(c["_id"]),
             "title": c["name"],
@@ -138,23 +149,36 @@ async def get_categories(db: AsyncIOMotorDatabase = Depends(get_db)):
     return results
 
 @router.get("/chapter/{category}")
-async def get_chapters(category: str, db: AsyncIOMotorDatabase = Depends(get_db)):
+async def get_chapters(category: str, request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
+    token = request.cookies.get("access_token")
+    user_id = None
+    if token:
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            user_id = payload.get("sub")
+        except JWTError:
+            pass
     try:
         obj_id = ObjectId(category)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid category ID")
-
     cate = await db.Category.find_one({"_id": obj_id})
     if not cate:
         raise HTTPException(status_code=404, detail="Category not found")
-
     chapters = await db.Chapters.find({"category_id": obj_id}).to_list(length=None)
     chapterresult = []
     for c in chapters:
         chapid = c["_id"]
         signs = await db.Lessons.find({"chapter_id": chapid}).to_list(length=None)
-        
-        # SignWord 형태로 변환
+        lesson_ids = [sign["_id"] for sign in signs]
+        lesson_status_map = {}
+        if user_id and lesson_ids:
+            progresses = await db.User_Lesson_Progress.find({
+                "user_id": ObjectId(user_id),
+                "lesson_id": {"$in": lesson_ids}
+            }).to_list(length=None)
+            for p in progresses:
+                lesson_status_map[str(p["lesson_id"])] = p.get("status", "not_started")
         sign_list = []
         for sign in signs:
             sign_list.append({
@@ -163,9 +187,9 @@ async def get_chapters(category: str, db: AsyncIOMotorDatabase = Depends(get_db)
                 "category": cate["name"],
                 "difficulty": "medium",
                 "videoUrl": str(sign.get("media_url", "")),
-                "description": sign.get("description", "")
+                "description": sign.get("description", ""),
+                "status": lesson_status_map.get(str(sign["_id"]), "not_started")
             })
-        
         chapterresult.append({
             "id": str(c["_id"]),
             "title": c["title"],
@@ -174,7 +198,6 @@ async def get_chapters(category: str, db: AsyncIOMotorDatabase = Depends(get_db)
             "categoryId": str(obj_id),
             "order_index": c.get("order", c.get("order_index", 0))
         })
-
     result = {
         "id": str(cate["_id"]),
         "title": cate["name"],
@@ -183,7 +206,6 @@ async def get_chapters(category: str, db: AsyncIOMotorDatabase = Depends(get_db)
         "icon": "📚",
         "order_index": cate.get("order", cate.get("order_index", 0))
     }
-
     return result
 
 @router.get("/progress/failures-by-username/{username}")
