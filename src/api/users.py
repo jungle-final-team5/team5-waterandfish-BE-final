@@ -4,24 +4,11 @@ from fastapi.responses import JSONResponse
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..db.session import get_db
+from .utils import convert_objectid
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-def convert_objectid(doc):
-    """ObjectId를 JSON에 맞게 문자열로 변환"""
-    if isinstance(doc, list):
-        return [convert_objectid(item) for item in doc]
-    elif isinstance(doc, dict):
-        new_doc = {}
-        for key, value in doc.items():
-            if key == "_id":
-                new_doc["id"] = str(value)
-            elif isinstance(value, ObjectId):
-                new_doc[key] = str(value)
-            else:
-                new_doc[key] = convert_objectid(value)
-        return new_doc
-    return doc
+
 
 # 사용자 진도 조회
 @router.get("/{user_id}/progress")

@@ -21,7 +21,14 @@ def convert_objectid(doc):
 
 def get_user_id_from_token(request: Request, access_token: str = Cookie(None)):
     """토큰에서 user_id 추출"""
-    token = access_token or request.cookies.get("access_token")
+    # access_token이 Cookie 객체인지 문자열인지 확인
+    if access_token and hasattr(access_token, 'value'):
+        token = access_token.value
+    elif access_token and isinstance(access_token, str):
+        token = access_token
+    else:
+        token = request.cookies.get("access_token")
+    
     if not token:
         return None
     try:

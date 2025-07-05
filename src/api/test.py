@@ -4,47 +4,13 @@ from fastapi.responses import JSONResponse
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..db.session import get_db
-from jose import jwt, JWTError
-from ..core.config import settings
+from .utils import get_user_id_from_token, require_auth, convert_objectid
 
 router = APIRouter(prefix="/test", tags=["test"])
 
-def get_user_id_from_token(request: Request):
-    """토큰에서 user_id 추출"""
-    token = request.cookies.get("access_token")
-    if not token:
-        return None
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        return payload.get("sub")
-    except JWTError:
-        return None
 
-def require_auth(request: Request):
-    """인증이 필요한 엔드포인트용"""
-    user_id = get_user_id_from_token(request)
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="Authentication required"
-        )
-    return user_id
 
-def convert_objectid(doc):
-    """ObjectId를 JSON에 맞게 문자열로 변환"""
-    if isinstance(doc, list):
-        return [convert_objectid(item) for item in doc]
-    elif isinstance(doc, dict):
-        new_doc = {}
-        for key, value in doc.items():
-            if key == "_id":
-                new_doc["id"] = str(value)
-            elif isinstance(value, ObjectId):
-                new_doc[key] = str(value)
-            else:
-                new_doc[key] = convert_objectid(value)
-        return new_doc
-    return doc
+
 
 # /test/letter/:setType/:qOrs 라우트용
 @router.get("/letter/{set_type}/{q_or_s}")

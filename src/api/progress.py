@@ -4,47 +4,11 @@ from fastapi.responses import JSONResponse
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..db.session import get_db
-from jose import jwt, JWTError
-from ..core.config import settings
+from .utils import get_user_id_from_token, require_auth, convert_objectid
 
 router = APIRouter(prefix="/progress", tags=["progress"])
 
-def convert_objectid(doc):
-    """ObjectId를 JSON에 맞게 문자열로 변환"""
-    if isinstance(doc, list):
-        return [convert_objectid(item) for item in doc]
-    elif isinstance(doc, dict):
-        new_doc = {}
-        for key, value in doc.items():
-            if key == "_id":
-                new_doc["id"] = str(value)
-            elif isinstance(value, ObjectId):
-                new_doc[key] = str(value)
-            else:
-                new_doc[key] = convert_objectid(value)
-        return new_doc
-    return doc
 
-def get_user_id_from_token(request: Request, access_token: str = Cookie(None)):
-    """토큰에서 user_id 추출"""
-    token = access_token or request.cookies.get("access_token")
-    if not token:
-        return None
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        return payload.get("sub")
-    except JWTError:
-        return None
-
-def require_auth(request: Request, access_token: str = Cookie(None)):
-    """인증이 필요한 엔드포인트용"""
-    user_id = get_user_id_from_token(request, access_token)
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="Authentication required"
-        )
-    return user_id
 
 # 카테고리 프로그레스
 @router.post("/categories/{category_id}")
@@ -250,7 +214,7 @@ async def get_progress_overview(
             "completed_chapters": completed_chapter_count,
             "total_chapters": len(chapters),
             "total_lessons": total_lessons,
-            "categories": category_progress
+            "categories": category_progress or []
         },
         "message": "진도 개요 조회 성공"
     }
