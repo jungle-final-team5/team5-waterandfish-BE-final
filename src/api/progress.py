@@ -306,4 +306,42 @@ async def get_failed_lessons_by_username(
         "success": True,
         "data": convert_objectid(lessons),
         "message": "실패한 레슨 조회 성공"
+    }
+
+@router.post("/chapters/{chapter_id}/lessons")
+async def update_chapter_lessons_progress(
+    chapter_id: str,
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """특정 챕터 내 여러 레슨의 학습 진행 상태 일괄 업데이트"""
+    user_id = require_auth(request)
+    data = await request.json()
+    try:
+        obj_id = ObjectId(chapter_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Invalid chapter ID"
+        )
+    lesson_ids = data.get("lesson_ids", [])
+    status = data.get("status", "study")
+    if lesson_ids:
+        lesson_obj_ids = [ObjectId(lid) for lid in lesson_ids]
+        await db.User_Lesson_Progress.update_many(
+            {
+                "user_id": ObjectId(user_id),
+                "lesson_id": {"$in": lesson_obj_ids}
+            },
+            {
+                "$set": {
+                    "status": status,
+                    "updated_at": datetime.utcnow(),
+                    "last_event_at": datetime.utcnow()
+                }
+            }
+        )
+    return {
+        "success": True,
+        "message": "학습 진행 상태 업데이트 완료"
     } 

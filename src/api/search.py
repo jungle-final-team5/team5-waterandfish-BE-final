@@ -1,17 +1,16 @@
 # src/api/search.py
-from fastapi import APIRouter, Query, HTTPException
-from motor.motor_asyncio import AsyncIOMotorClient
+from fastapi import APIRouter, Query, HTTPException, Depends
+from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..services.embedding import embed
-from ..core.config import settings
+from ..db.session import get_db
+from bson import ObjectId
 
 router = APIRouter(prefix="/search", tags=["search"])
-COL = AsyncIOMotorClient(settings.MONGODB_URL)["waterandfish"]["Lessons"]
 
 def projection():
     return {
-        "_id": 0,
+        "lesson_id": {"$toString": "$_id"},
         "sign_text": 1,
-        "lesson_id": 1,
         "score": {"$meta": "vectorSearchScore"}
     }
 
@@ -23,12 +22,23 @@ POST_FILTER = {
     ]
 }
 
+def convert_objectid_to_str(doc):
+    for k, v in doc.items():
+        if isinstance(v, ObjectId):
+            doc[k] = str(v)
+    return doc
+
 @router.get("")
-async def semantic_search(q: str = Query(..., min_length=1), k: int = 10):
+async def semantic_search(
+    q: str = Query(..., min_length=1),
+    k: int = 10,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    lessons_col = db.Lessons
     q_vec = embed(q)
 
     pipe = [
-        {   # ① vectorSearch – filter 없이 첫 스테이지
+        {
             "$vectorSearch": {
                 "index":         "waterandfish_lessons",
                 "path":          "embedding",
@@ -37,21 +47,34 @@ async def semantic_search(q: str = Query(..., min_length=1), k: int = 10):
                 "numCandidates": k * 5
             }
         },
-        { "$match": POST_FILTER },                # ② 숫자/letter 제거
-        { "$project": projection() }              # ③ 필드 정리
+        { "$match": POST_FILTER },
+        { "$project": projection() }
     ]
 
-    hits = await COL.aggregate(pipe).to_list(k)
+    hits = await lessons_col.aggregate(pipe).to_list(k)
 
-    # ───── fallback: prefix 검색 ─────
+    # fallback: prefix 검색
     if not hits:
-        prefix_cond = {**POST_FILTER,
-                       "sign_text": {"$regex": f"^{q}"}}
-        hits = await COL.find(prefix_cond,
-                              projection())\
-                        .limit(k).to_list(length=k)
+        prefix_cond = {**POST_FILTER, "sign_text": {"$regex": f"^{q}"}}
+        fallback_hits = await lessons_col.find(prefix_cond, {"_id": 1, "sign_text": 1}).limit(k).to_list(length=k)
+        # ObjectId를 문자열로 변환 + score 필드 추가
+        hits = [
+            {
+                "lesson_id": str(doc["_id"]),
+                "sign_text": doc["sign_text"],
+                "score": None
+            }
+            for doc in fallback_hits
+        ]
+
+    # 모든 hits에 대해 ObjectId를 str로 변환 (lesson_id 외 다른 필드도 포함)
+    hits = [convert_objectid_to_str(hit) for hit in hits]
 
     if not hits:
         raise HTTPException(status_code=404, detail="No results")
 
-    return hits
+    return {
+        "success": True,
+        "data": hits,
+        "message": "검색 결과"
+    }
