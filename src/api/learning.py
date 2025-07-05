@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Request, HTTPException, Depends, applications, Cookie
+from fastapi import APIRouter, Request, HTTPException, Depends, applications, Cookie, status
 from fastapi.responses import JSONResponse
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -118,15 +118,7 @@ async def connectlesson(request:Request,db: AsyncIOMotorDatabase = Depends(get_d
     )
 
 @router.get("/categories")
-async def get_categories(request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
-    token = request.cookies.get("access_token")
-    user_id = None
-    if token:
-        try:
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-            user_id = payload.get("sub")
-        except JWTError:
-            pass
+async def get_categories(db: AsyncIOMotorDatabase = Depends(get_db)):
     categories = await db.Category.find().to_list(length=None)
     results = []
     for c in categories:
@@ -227,7 +219,7 @@ async def get_chapters(category: str, request: Request, db: AsyncIOMotorDatabase
             sign_list.append({
                 "id": str(sign["_id"]),
                 "word": sign.get("sign_text", ""),
-                "category": cate["name"],
+                "category": c["name"],
                 "difficulty": "medium",
                 "videoUrl": str(sign.get("media_url", "")),
                 "description": sign.get("description", ""),
@@ -789,3 +781,231 @@ async def get_progress_overview(request: Request, db: AsyncIOMotorDatabase = Dep
         "total_lessons": total_lessons,
         "categories": category_progress
     }
+
+@router.get("/users/{user_id}/progress")
+async def get_user_progress(user_id: str, db: AsyncIOMotorDatabase = Depends(get_db)):
+    # 유저의 전체 진도(카테고리, 챕터, 레슨 등) 조회
+    # 예시: User_Lesson_Progress, User_Chapter_Progress, User_Category_Progress 등에서 조회
+    lesson_progress = await db.User_Lesson_Progress.find({"user_id": ObjectId(user_id)}).to_list(length=None)
+    chapter_progress = await db.User_Chapter_Progress.find({"user_id": ObjectId(user_id)}).to_list(length=None)
+    category_progress = await db.User_Category_Progress.find({"user_id": ObjectId(user_id)}).to_list(length=None)
+    return {"success": True, "data": {
+        "lesson_progress": lesson_progress,
+        "chapter_progress": chapter_progress,
+        "category_progress": category_progress
+    }, "message": "유저 진도 조회 성공"}
+
+@router.post("/users/{user_id}/progress/categories")
+async def set_user_category_progress(user_id: str, request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
+    data = await request.json()
+    category_id = ObjectId(data.get("category_id"))
+    category_progress = await db.User_Category_Progress.find_one({
+        "user_id": ObjectId(user_id),
+        "category_id": category_id
+    })
+    if category_progress:
+        return JSONResponse(status_code=status.HTTP_200_OK, content={"success": True, "message": "이미 초기화됨"})
+    await db.User_Category_Progress.insert_one({
+        "user_id": ObjectId(user_id),
+        "category_id": category_id,
+        "complete": False,
+        "complete_at": None
+    })
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content={"success": True, "message": "카테고리 진도 초기화 완료"})
+
+@router.post("/users/{user_id}/progress/chapters")
+async def set_user_chapter_progress(user_id: str, request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
+    data = await request.json()
+    chapter_id = ObjectId(data.get("chapter_id"))
+    chapter_progress = await db.User_Chapter_Progress.find_one({
+        "user_id": ObjectId(user_id),
+        "chapter_id": chapter_id
+    })
+    if chapter_progress:
+        return JSONResponse(status_code=status.HTTP_200_OK, content={"success": True, "message": "이미 초기화됨"})
+    await db.User_Chapter_Progress.insert_one({
+        "user_id": ObjectId(user_id),
+        "chapter_id": chapter_id,
+        "complete": False,
+        "complete_at": None
+    })
+    # 하위 레슨 진도도 초기화
+    lessons = await db.Lessons.find({"chapter_id": chapter_id}).to_list(length=None)
+    progress_bulk = [{
+        "user_id": ObjectId(user_id),
+        "lesson_id": lesson["_id"],
+        "status": "not_started",
+        "updated_at": datetime.utcnow()
+    } for lesson in lessons]
+    if progress_bulk:
+        await db.User_Lesson_Progress.insert_many(progress_bulk)
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content={"success": True, "message": "챕터 및 레슨 진도 초기화 완료"})
+
+@router.post("/users/{user_id}/progress/lessons/event")
+async def update_lesson_event(user_id: str, request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
+    data = await request.json()
+    lesson_ids = [ObjectId(lid) for lid in data.get("lesson_ids", [])]
+    await db.User_Lesson_Progress.update_many(
+        {"user_id": ObjectId(user_id), "lesson_id": {"$in": lesson_ids}},
+        {"$set": {"last_event_at": datetime.utcnow()}}
+    )
+    return {"success": True, "message": "last_event_at 업데이트 완료"}
+
+@router.get("/users/{user_id}/progress/overview")
+async def get_progress_overview(user_id: str, db: AsyncIOMotorDatabase = Depends(get_db)):
+    # 전체 레슨 수
+    total_lessons = await db.Lessons.count_documents({})
+    reviewed_count = await db.User_Lesson_Progress.count_documents({
+        "user_id": ObjectId(user_id),
+        "status": "reviewed"
+    })
+    overall_progress = int((reviewed_count / total_lessons) * 100) if total_lessons > 0 else 0
+    return {"success": True, "data": {"overall_progress": overall_progress}, "message": "전체 진도율 조회 성공"}
+
+# ---------- 학습/퀴즈 결과 ----------
+@router.post("/users/{user_id}/study/letters")
+async def study_letters(user_id: str, request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
+    data = await request.json()
+    cletters = data.get("checked", [])
+    if not cletters:
+        raise HTTPException(status_code=400, detail="학습한 글자가 없습니다")
+    # 자음/모음 챕터 찾기
+    if cletters[0] == "ㄱ":
+        chapter_doc = await db.Chapters.find_one({"title": "자음"})
+    elif cletters[0] == "ㅏ":
+        chapter_doc = await db.Chapters.find_one({"title": "모음"})
+    else:
+        chapter_doc = None
+    if not chapter_doc:
+        raise HTTPException(status_code=404, detail="챕터를 찾을 수 없습니다")
+    chapid = chapter_doc["_id"]
+    letters = await db.Lessons.find({"chapter_id": chapid}).to_list(length=None)
+    letter_ids = [lesson["_id"] for lesson in letters]
+    # 진도 업데이트 로직 필요시 추가
+    return {"success": True, "message": "글자 학습 시작"}
+
+@router.post("/users/{user_id}/quiz/letters")
+async def quiz_letters(user_id: str, request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
+    data = await request.json()
+    pletters = data.get("passed", [])
+    fletters = data.get("failed", [])
+    # 자음/모음 챕터 찾기
+    if (pletters and pletters[0] == 'ㄱ') or (fletters and fletters[0] == 'ㄱ'):
+        chapter_doc = await db.Chapters.find_one({"title": "자음"})
+    elif (pletters and pletters[0] == 'ㅏ') or (fletters and fletters[0] == 'ㅏ'):
+        chapter_doc = await db.Chapters.find_one({"title": "모음"})
+    else:
+        chapter_doc = None
+    if not chapter_doc:
+        raise HTTPException(status_code=404, detail="챕터를 찾을 수 없습니다")
+    chapid = chapter_doc["_id"]
+    presult = []
+    fresult = []
+    letters = await db.Lessons.find({"chapter_id": chapid}).to_list(length=None)
+    for letter in letters:
+        if letter["sign_text"] in pletters:
+            presult.append(letter["_id"])
+        elif letter["sign_text"] in fletters:
+            fresult.append(letter["_id"])
+    # 진도 업데이트 로직 필요시 추가
+    return {"success": True, "data": {"passed": len(presult), "failed": len(fresult)}, "message": "글자 퀴즈 결과 기록"}
+
+@router.post("/users/{user_id}/study/sessions")
+async def study_sessions(user_id: str, request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
+    data = await request.json()
+    lesson_ids = [ObjectId(lesson_id) for lesson_id in data]
+    # 진도 업데이트 로직 필요시 추가
+    return {"success": True, "message": "세션 학습 시작"}
+
+@router.post("/users/{user_id}/quiz/sessions")
+async def quiz_sessions(user_id: str, request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
+    data = await request.json()
+    correct_ids = []
+    wrong_ids = []
+    for result in data:
+        signid = ObjectId(result.get("signId"))
+        correct = result.get("correct")
+        if correct:
+            correct_ids.append(signid)
+        else:
+            wrong_ids.append(signid)
+    # 진도 업데이트 로직 필요시 추가
+    return {"success": True, "data": {"passed": len(correct_ids), "failed": len(wrong_ids)}, "message": "세션 퀴즈 결과 기록"}
+
+@router.get("/users/{user_id}/recent-learning")
+async def get_recent_learning(user_id: str, db: AsyncIOMotorDatabase = Depends(get_db)):
+    progress = await db.User_Lesson_Progress.find({
+        "user_id": ObjectId(user_id)
+    }).sort("last_event_at", -1).limit(1).to_list(length=1)
+    if not progress:
+        return {"success": True, "data": {"category": None, "chapter": None}, "message": "최근 학습 없음"}
+    lesson_id = progress[0]["lesson_id"]
+    lesson = await db.Lessons.find_one({"_id": lesson_id})
+    if not lesson:
+        return {"success": True, "data": {"category": None, "chapter": None}, "message": "최근 학습 없음"}
+    chapter = await db.Chapters.find_one({"_id": lesson["chapter_id"]})
+    if not chapter:
+        return {"success": True, "data": {"category": None, "chapter": None}, "message": "최근 학습 없음"}
+    category = await db.Category.find_one({"_id": chapter["category_id"]})
+    if not category:
+        return {"success": True, "data": {"category": None, "chapter": chapter["title"]}, "message": "최근 학습 있음"}
+    return {"success": True, "data": {"category": category["name"], "chapter": chapter["title"]}, "message": "최근 학습 있음"}
+
+# ---------- 출석(streak) ----------
+@router.get("/users/{user_id}/attendance/streak")
+async def get_streak(user_id: str, db: AsyncIOMotorDatabase = Depends(get_db)):
+    activities = await db.user_daily_activity.find(
+        {"user_id": ObjectId(user_id), "has_activity": True}
+    ).sort("activity_date", 1).to_list(length=None)
+    study_dates = [a["activity_date"].strftime("%Y-%m-%d") for a in activities]
+    date_list = [a["activity_date"].date() for a in activities]
+    def calculate_streaks(dates):
+        if not dates:
+            return 0, 0
+        max_streak = 1
+        temp_streak = 1
+        prev = dates[0]
+        for i in range(1, len(dates)):
+            if (dates[i] - prev).days == 1:
+                temp_streak += 1
+            else:
+                temp_streak = 1
+            if temp_streak > max_streak:
+                max_streak = temp_streak
+            prev = dates[i]
+        current_streak = 1 if dates else 0
+        for i in range(len(dates)-1, 0, -1):
+            if (dates[i] - dates[i-1]).days == 1:
+                current_streak += 1
+            else:
+                break
+        return current_streak, max_streak
+    current_streak, longest_streak = calculate_streaks(date_list)
+    return {"success": True, "data": {
+        "studyDates": study_dates,
+        "currentStreak": current_streak,
+        "longestStreak": longest_streak
+    }, "message": "출석(streak) 정보 조회 성공"}
+
+@router.post("/users/{user_id}/attendance/complete")
+async def complete_today_activity(user_id: str, db: AsyncIOMotorDatabase = Depends(get_db)):
+    from datetime import datetime
+    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    result = await db.user_daily_activity.update_one(
+        {"user_id": ObjectId(user_id), "activity_date": today},
+        {
+            "$set": {
+                "has_activity": True,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    if result.matched_count == 0:
+        await db.user_daily_activity.insert_one({
+            "user_id": ObjectId(user_id),
+            "activity_date": today,
+            "has_activity": True,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        })
+    return {"success": True, "message": "오늘 출석이 기록되었습니다."}
