@@ -4,31 +4,11 @@ from fastapi.responses import JSONResponse
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..db.session import get_db
-from jose import jwt, JWTError
-from ..core.config import settings
+from .utils import get_user_id_from_token, require_auth
 
 router = APIRouter(prefix="/study", tags=["study"])
 
-def get_user_id_from_token(request: Request):
-    """토큰에서 user_id 추출"""
-    token = request.cookies.get("access_token")
-    if not token:
-        return None
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        return payload.get("sub")
-    except JWTError:
-        return None
 
-def require_auth(request: Request):
-    """인증이 필요한 엔드포인트용"""
-    user_id = get_user_id_from_token(request)
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="Authentication required"
-        )
-    return user_id
 
 # 글자 학습 시작
 @router.post("/letters")
