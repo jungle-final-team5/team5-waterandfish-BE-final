@@ -83,9 +83,6 @@ async def check_badge_condition(badge: Dict, user_stats: Dict) -> bool:
     try:
         badge_code = badge.get("code")
         badge_cond = badge.get("rule_json", {}).get("value")
-        print("i require :")
-        print(badge_code)
-        print(badge_cond)
         
         start_at = user_stats.get("start_at")
         total_words = user_stats.get("total_words")

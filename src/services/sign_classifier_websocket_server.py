@@ -359,7 +359,7 @@ class SignClassifierWebSocketServer:
         self.clients.add(websocket)
         self.initialize_client(client_id)
         
-        logger.info(f"🟢 클라이언트 연결됨: {client_id}")
+        logger.info(f"🟢 client connected: {client_id}")
         
         try:
             async for message in websocket:
