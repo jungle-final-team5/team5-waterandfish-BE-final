@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from fastapi import APIRouter, Request, HTTPException, Depends, applications, Cookie
 from fastapi.responses import JSONResponse
 from bson import ObjectId
@@ -629,8 +629,13 @@ async def get_streak(request: Request, db=Depends(get_db), access_token: str = C
             if temp_streak > max_streak:
                 max_streak = temp_streak
             prev = dates[i]
-        # current streak: 가장 최근 날짜부터 연속 streak 계산
-        current_streak = 1 if dates else 0
+        # current streak: 마지막 활동일이 오늘인 경우에만
+        today = date.today()
+        if (today - dates[-1]).days != 0:
+            # 마지막 활동이 오늘이 아니면 streak는 0
+            return 0, max_streak
+        # 연속 streak 계산
+        current_streak = 1
         for i in range(len(dates)-1, 0, -1):
             if (dates[i] - dates[i-1]).days == 1:
                 current_streak += 1
@@ -639,6 +644,11 @@ async def get_streak(request: Request, db=Depends(get_db), access_token: str = C
         return current_streak, max_streak
 
     current_streak, longest_streak = calculate_streaks(date_list)
+    # user 테이블의 streak_days 필드도 최신값으로 업데이트
+    await db.users.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"streak_days": current_streak}}
+    )
 
     return {
         "studyDates": study_dates,
