@@ -9,6 +9,32 @@ from .utils import get_user_id_from_token, convert_objectid
 router = APIRouter(prefix="/category", tags=["category"])
 
 
+@router.get("/list")
+async def get_categories_list(request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
+    """카테고리 목록만 조회 - 성능 최적화용"""
+    categories = await db.Category.find().sort("order", 1).to_list(length=None)
+    
+    results = []
+    for category in categories:
+        # 각 카테고리의 챕터 개수 조회
+        chapter_count = await db.Chapters.count_documents({"category_id": category["_id"]})
+        
+        results.append({
+            "id": str(category["_id"]),
+            "title": category["name"],
+            "description": category["description"],
+            "chapter_count": chapter_count,
+            "icon": "📚",
+            "emoji": category.get("emoji", "📚"),
+            "order_index": category.get("order", category.get("order_index", 0))
+        })
+    
+    return {
+        "success": True,
+        "data": results or [],
+        "message": "카테고리 목록 조회 성공"
+    }
+
 
 @router.post("")
 async def create_category(request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
