@@ -110,16 +110,16 @@ async def update_lesson_events(
     request: Request,
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
-    """레슨 이벤트 업데이트"""
-    user_id = require_auth(request)
+    """레슨 이벤트 업데이트 (user_id를 body에서 받음)"""
     data = await request.json()
+    user_id = data.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
     lesson_ids = [ObjectId(lid) for lid in data.get("lesson_ids", [])]
-    
     await db.User_Lesson_Progress.update_many(
         {"user_id": ObjectId(user_id), "lesson_id": {"$in": lesson_ids}},
         {"$set": {"last_event_at": datetime.utcnow()}}
     )
-    
     return {
         "success": True,
         "message": "last_event_at 업데이트 완료"
