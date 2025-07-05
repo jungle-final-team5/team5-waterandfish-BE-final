@@ -1,11 +1,12 @@
 import os
 import subprocess
+from collections import defaultdict
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from ..core.config import settings
 from .model_server_manager import ModelServerManager, model_server_manager
 from ..db.session import get_db
 
-running_models = {}
+running_models = defaultdict(list)
 
 async def deploy_model(chapter_id, db: AsyncIOMotorDatabase = None):
     """챕터에 해당하는 모델 서버를 배포"""
@@ -29,6 +30,7 @@ async def deploy_model(chapter_id, db: AsyncIOMotorDatabase = None):
         model_id = model_data_url
         
         if model_id in running_models: # 이미 실행중인 모델이면 웹소켓 주소 추가
+            print(f"Model server already running for {model_id}")
             ws_urls.append(running_models[model_id]) 
         else: # 모델 서버 시작
             try:
@@ -38,6 +40,7 @@ async def deploy_model(chapter_id, db: AsyncIOMotorDatabase = None):
                 # Continue with other models even if one fails
                 raise Exception(f"Failed to start model server for {model_id}: {str(e)}")
             ws_urls.append(ws_url)
+            running_models[model_id] = ws_url
             print(f"Model server deployed for chapter {chapter_id}: {ws_url}")
             
     
