@@ -17,6 +17,7 @@ from .api.review import router as review_router
 from .api.badge import router as badge_router
 from .api.search import router as search_router
 from .api.ml import router as ml_router
+from .api.recommendations import router as recommendations_router
 from .core.config import settings
 
 app = FastAPI(
@@ -77,4 +78,5 @@ app.include_router(learning_router)  # deprecated
 app.include_router(badge_router)
 app.include_router(search_router)
 app.include_router(ml_router)
+app.include_router(recommendations_router)
 
