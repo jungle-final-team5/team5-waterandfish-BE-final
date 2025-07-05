@@ -131,53 +131,45 @@ async def get_progress_overview(
     request: Request,
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
-    """전체 진도 개요 조회"""
+    """전체 진도 개요 조회 (최적화 버전)"""
     user_id = require_auth(request)
-    
-    # 전체 레슨 수
-    total_lessons = await db.Lessons.count_documents({})
-    # reviewed 상태인 레슨 수
-    reviewed_count = await db.User_Lesson_Progress.count_documents({
-        "user_id": ObjectId(user_id),
-        "status": "reviewed"
-    })
-    
+
+    # 모든 데이터 한 번에 불러오기
+    all_lessons = await db.Lessons.find().to_list(length=None)
+    all_chapters = await db.Chapters.find().to_list(length=None)
+    all_categories = await db.Category.find().to_list(length=None)
+    all_progress = await db.User_Lesson_Progress.find({"user_id": ObjectId(user_id)}).to_list(length=None)
+
+    # 인덱싱
+    lesson_id_to_progress = {p["lesson_id"]: p for p in all_progress}
+    chapter_id_to_lessons = {}
+    for lesson in all_lessons:
+        chapter_id_to_lessons.setdefault(lesson["chapter_id"], []).append(lesson["_id"])
+    category_id_to_chapters = {}
+    for chapter in all_chapters:
+        category_id_to_chapters.setdefault(chapter["category_id"], []).append(chapter["_id"])
+
     # 전체 진도율
+    total_lessons = len(all_lessons)
+    reviewed_count = sum(1 for p in all_progress if p["status"] == "reviewed")
     overall_progress = int((reviewed_count / total_lessons) * 100) if total_lessons > 0 else 0
-    
-    # 카테고리별 진도율 (챕터 단위)
-    categories = await db.Category.find().to_list(length=None)
+
+    # 카테고리별 진도율
     category_progress = []
-    
-    for category in categories:
-        # 카테고리 내 챕터 목록
-        chapters = await db.Chapters.find({"category_id": category["_id"]}).to_list(length=None)
-        total_chapters = len(chapters)
-        completed_chapters = 0
-        
-        for chapter in chapters:
-            lesson_ids = [l["_id"] for l in await db.Lessons.find({"chapter_id": chapter["_id"]}).to_list(length=None)]
-            total = len(lesson_ids)
-            if total == 0:
-                continue
-            reviewed = await db.User_Lesson_Progress.count_documents({
-                "user_id": ObjectId(user_id),
-                "lesson_id": {"$in": lesson_ids},
-                "status": "reviewed"
-            })
-            if reviewed == total:
-                completed_chapters += 1
-        
-        # 카테고리별 전체 레슨/완료 레슨도 기존대로 포함
-        lesson_ids = [l["_id"] for l in await db.Lessons.find({"chapter_id": {"$in": [c["_id"] for c in chapters]}}).to_list(length=None)]
+    for category in all_categories:
+        chapter_ids = category_id_to_chapters.get(category["_id"], [])
+        lesson_ids = [lid for cid in chapter_ids for lid in chapter_id_to_lessons.get(cid, [])]
         total_lessons_in_cat = len(lesson_ids)
-        reviewed_lessons_in_cat = await db.User_Lesson_Progress.count_documents({
-            "user_id": ObjectId(user_id),
-            "lesson_id": {"$in": lesson_ids},
-            "status": "reviewed"
-        })
+        reviewed_lessons_in_cat = sum(1 for lid in lesson_ids if lesson_id_to_progress.get(lid, {}).get("status") == "reviewed")
+        # 챕터별 완료 여부
+        completed_chapters = 0
+        for cid in chapter_ids:
+            lids = chapter_id_to_lessons.get(cid, [])
+            if lids:
+                if all(lesson_id_to_progress.get(lid, {}).get("status") == "reviewed" for lid in lids):
+                    completed_chapters += 1
+        total_chapters = len(chapter_ids)
         progress = int((reviewed_lessons_in_cat / total_lessons_in_cat) * 100) if total_lessons_in_cat > 0 else 0
-        
         category_progress.append({
             "id": str(category["_id"]),
             "name": category["name"],
@@ -189,30 +181,20 @@ async def get_progress_overview(
             "total_lessons": total_lessons_in_cat,
             "status": "completed" if completed_chapters == total_chapters and total_chapters > 0 else "in_progress"
         })
-    
-    # 챕터별 완료 여부 계산 (전체)
-    chapters = await db.Chapters.find().to_list(length=None)
+
+    # 전체 챕터별 완료 여부
     completed_chapter_count = 0
-    
-    for chapter in chapters:
-        lesson_ids = [l["_id"] for l in await db.Lessons.find({"chapter_id": chapter["_id"]}).to_list(length=None)]
-        total = len(lesson_ids)
-        if total == 0:
-            continue
-        reviewed = await db.User_Lesson_Progress.count_documents({
-            "user_id": ObjectId(user_id),
-            "lesson_id": {"$in": lesson_ids},
-            "status": "reviewed"
-        })
-        if reviewed == total:
+    for chapter in all_chapters:
+        lids = chapter_id_to_lessons.get(chapter["_id"], [])
+        if lids and all(lesson_id_to_progress.get(lid, {}).get("status") == "reviewed" for lid in lids):
             completed_chapter_count += 1
-    
+
     return {
         "success": True,
         "data": {
             "overall_progress": overall_progress,
             "completed_chapters": completed_chapter_count,
-            "total_chapters": len(chapters),
+            "total_chapters": len(all_chapters),
             "total_lessons": total_lessons,
             "categories": category_progress or []
         },
