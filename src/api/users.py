@@ -79,58 +79,6 @@ async def set_user_category_progress(
         content={"success": True, "message": "카테고리 진도 초기화 완료"}
     )
 
-# 사용자 챕터 진도 초기화
-@router.post("/{user_id}/progress/chapters/{chapter_id}")
-async def set_user_chapter_progress(
-    user_id: str,
-    chapter_id: str,
-    db: AsyncIOMotorDatabase = Depends(get_db)
-):
-    """사용자 챕터 진도 초기화"""
-    try:
-        user_obj_id = ObjectId(user_id)
-        chapter_obj_id = ObjectId(chapter_id)
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            detail="Invalid user ID or chapter ID"
-        )
-    
-    existing_progress = await db.User_Chapter_Progress.find_one({
-        "user_id": user_obj_id,
-        "chapter_id": chapter_obj_id
-    })
-    
-    if existing_progress:
-        return JSONResponse(
-            status_code=status.HTTP_200_OK, 
-            content={"success": True, "message": "이미 초기화됨"}
-        )
-    
-    await db.User_Chapter_Progress.insert_one({
-        "user_id": user_obj_id,
-        "chapter_id": chapter_obj_id,
-        "complete": False,
-        "complete_at": None
-    })
-    
-    # 하위 레슨 진도도 초기화
-    lessons = await db.Lessons.find({"chapter_id": chapter_obj_id}).to_list(length=None)
-    progress_bulk = [{
-        "user_id": user_obj_id,
-        "lesson_id": lesson["_id"],
-        "status": "not_started",
-        "updated_at": datetime.utcnow()
-    } for lesson in lessons]
-    
-    if progress_bulk:
-        await db.User_Lesson_Progress.insert_many(progress_bulk)
-    
-    return JSONResponse(
-        status_code=status.HTTP_201_CREATED, 
-        content={"success": True, "message": "챕터 및 레슨 진도 초기화 완료"}
-    )
-
 # 사용자 레슨 이벤트 업데이트
 @router.post("/{user_id}/progress/lessons/events")
 async def update_user_lesson_events(
