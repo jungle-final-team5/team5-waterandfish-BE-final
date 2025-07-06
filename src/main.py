@@ -16,6 +16,7 @@ from .api.test import router as test_router
 from .api.review import router as review_router
 from .api.badge import router as badge_router
 from .api.search import router as search_router
+from .api.ml import router as ml_router
 from .api.recommendations import router as recommendations_router
 from .core.config import settings
 
@@ -24,19 +25,36 @@ app = FastAPI(
     description="수어 학습 플랫폼 API",
     version="1.0.0"
 )
+app = FastAPI(title="WaterAndFish API", version="1.0.0")
 
-# CORS 미들웨어 추가
+# CORS 미들웨어 추가 - 더 안전한 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,  # 리스트로 넘겨야 함!
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.cors_origins_list,  # 설정된 origins만 허용
+    allow_credentials=True,  # 쿠키 포함 요청 허용
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # 허용할 HTTP 메서드
+    allow_headers=[
+        "Accept",
+        "Accept-Language",
+        "Content-Language",
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "Origin",
+        "X-CSRFToken",
+        "Cookie",
+    ],  # 허용할 헤더
+    expose_headers=["Set-Cookie"],  # 클라이언트가 접근 가능한 헤더
+    max_age=600,  # preflight 요청 캐시 시간 (초)
 )
 
 @app.get("/")
 def read_root():
-    return {"message": "Hello, team5-waterandfish-BE!"}
+    return {"message": "Hello, team5-waterandfish-BE!", "status": "healthy"}
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "cors_origins": settings.cors_origins_list}
 
 # 프론트엔드 라우트에 맞춘 새로운 API 라우터들
 app.include_router(categories_router)  # /category
@@ -59,5 +77,6 @@ app.include_router(auth_router)
 app.include_router(learning_router)  # deprecated
 app.include_router(badge_router)
 app.include_router(search_router)
+app.include_router(ml_router)
 app.include_router(recommendations_router)
 

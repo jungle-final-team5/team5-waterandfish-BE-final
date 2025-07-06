@@ -69,7 +69,7 @@ async def create_category(request: Request, db: AsyncIOMotorDatabase = Depends(g
 async def get_categories(request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
     """모든 카테고리 조회 (챕터와 레슨 포함) - /category 라우트용"""
     user_id = get_user_id_from_token(request)
-    
+    print('[get_categories] user_id:', user_id)
     categories = await db.Category.find().to_list(length=None)
     results = []
     
