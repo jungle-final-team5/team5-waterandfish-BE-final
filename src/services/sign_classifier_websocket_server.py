@@ -170,11 +170,11 @@ class SignClassifierWebSocketServer:
             # 바이트를 numpy 배열로 변환
             nparr = np.frombuffer(image_bytes, np.uint8)
             
-            # 이미지 디코딩
+            # 이미지 디코딩 (JPEG, PNG 등 지원)
             frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             
             if frame is None:
-                logger.warning("프레임 디코딩 실패")
+                logger.warning("이미지 디코딩 실패 - 지원되지 않는 포맷이거나 손상된 데이터")
                 return None
             
             # 프레임 크기 확인
@@ -184,7 +184,7 @@ class SignClassifierWebSocketServer:
             
             # 검은색 프레임 감지
             if frame.max() == 0:
-                logger.error("❌ 검은색 프레임 감지! 이미지 데이터에 문제가 있습니다.")
+                logger.warning("검은색 프레임 감지")
                 return None
             
             return frame

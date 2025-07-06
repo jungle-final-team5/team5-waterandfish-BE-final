@@ -41,6 +41,7 @@ async def deploy_model(chapter_id, db: AsyncIOMotorDatabase = None):
                 raise Exception(f"Failed to start model server for {model_id}: {str(e)}")
             ws_urls.append(ws_url)
             running_models[model_id] = ws_url
+            model_server_manager.running_servers[model_id] = ws_url
             print(f"Model server deployed for chapter {chapter_id}: {ws_url}")
             
     
