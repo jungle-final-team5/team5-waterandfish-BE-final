@@ -221,4 +221,105 @@ async def connect_lessons_to_chapter(
     return {
         "success": True,
         "message": "레슨 연결 성공"
+    }
+
+@router.get("/{chapter_id}/session")
+async def get_chapter_session(
+    chapter_id: str,
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """챕터 학습 세션 조회 - /chapters/{chapter_id}/session"""
+    user_id = get_user_id_from_token(request)
+    try:
+        obj_id = ObjectId(chapter_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Invalid chapter ID"
+        )
+    chapter = await db.Chapters.find_one({"_id": obj_id})
+    if not chapter:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Chapter not found"
+        )
+    lessons = await db.Lessons.find({"chapter_id": obj_id}).to_list(length=None)
+    lesson_ids = [lesson["_id"] for lesson in lessons]
+    lesson_status_map = {}
+    if user_id and lesson_ids:
+        progresses = await db.User_Lesson_Progress.find({
+            "user_id": ObjectId(user_id),
+            "lesson_id": {"$in": lesson_ids}
+        }).to_list(length=None)
+        for progress in progresses:
+            lesson_status_map[str(progress["lesson_id"])] = progress.get("status", "not_started")
+    lesson_list = []
+    for lesson in lessons:
+        lesson_list.append({
+            "id": str(lesson["_id"]),
+            "word": lesson.get("sign_text", ""),
+            "videoUrl": str(lesson.get("media_url", "")),
+            "description": lesson.get("description", ""),
+            "status": lesson_status_map.get(str(lesson["_id"]), "not_started")
+        })
+    category = await db.Category.find_one({"_id": chapter["category_id"]})
+    result = {
+        "id": str(chapter["_id"]),
+        "title": chapter["title"],
+        "type": chapter.get("lesson_type", None),
+        "category_name": category["name"] if category else "Unknown",
+        "lessons": lesson_list,
+        "order_index": chapter.get("order_index", 0)
+    }
+    return {
+        "success": True,
+        "data": result,
+        "message": "챕터 학습 세션 조회 성공"
+    }
+
+@router.get("/{chapter_id}/guide")
+async def get_chapter_guide(
+    chapter_id: str,
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """챕터 학습 가이드 조회 - /chapters/{chapter_id}/guide"""
+    try:
+        obj_id = ObjectId(chapter_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Invalid chapter ID"
+        )
+    chapter = await db.Chapters.find_one({"_id": obj_id})
+    if not chapter:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Chapter not found"
+        )
+    category = await db.Category.find_one({"_id": chapter["category_id"]})
+    lessons = await db.Lessons.find({"chapter_id": obj_id}).to_list(length=None)
+    lesson_list = []
+    for lesson in lessons:
+        lesson_list.append({
+            "id": str(lesson["_id"]),
+            "word": lesson.get("sign_text", ""),
+            "videoUrl": str(lesson.get("media_url", "")),
+            "description": lesson.get("description", ""),
+            "order_index": lesson.get("order_index", 0)
+        })
+    result = {
+        "id": str(chapter["_id"]),
+        "title": chapter["title"],
+        "type": chapter.get("lesson_type", None),
+        "category_name": category["name"] if category else "Unknown",
+        "description": chapter.get("description", ""),
+        "lessons": lesson_list,
+        "order_index": chapter.get("order_index", 0)
+    }
+    return {
+        "success": True,
+        "data": result,
+        "message": "챕터 학습 가이드 조회 성공"
     } 
