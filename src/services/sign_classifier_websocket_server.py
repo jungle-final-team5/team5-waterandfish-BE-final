@@ -15,12 +15,7 @@ import io
 from datetime import datetime
 import argparse
 
-# 로깅 설정
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
+# 로깅 설정은 main() 함수에서 동적으로 설정됩니다
 logger = logging.getLogger(__name__)
 
 class SignClassifierWebSocketServer:
@@ -435,21 +430,64 @@ class SignClassifierWebSocketServer:
         
         await server.wait_closed()
 
+def setup_logging(log_level='INFO'):
+    """로깅 설정을 동적으로 구성"""
+    # 로그 레벨 매핑
+    level_map = {
+        'DEBUG': logging.DEBUG,
+        'INFO': logging.INFO,
+        'WARNING': logging.WARNING,
+        'ERROR': logging.ERROR,
+        'CRITICAL': logging.CRITICAL,
+        'OFF': logging.CRITICAL + 1  # 로그를 완전히 끄기 위한 레벨
+    }
+    
+    # 로그 레벨 설정
+    numeric_level = level_map.get(log_level.upper(), logging.INFO)
+    
+    # 로깅 기본 설정
+    logging.basicConfig(
+        level=numeric_level,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        force=True  # 기존 로깅 설정 덮어쓰기
+    )
+    
+    # 로그가 완전히 꺼진 경우 알림 (단, 이 알림은 출력되지 않음)
+    if log_level.upper() == 'OFF':
+        # 로그를 끄기 위해 모든 로거의 레벨을 높임
+        logging.getLogger().setLevel(logging.CRITICAL + 1)
+        # 핸들러도 같은 레벨로 설정
+        for handler in logging.getLogger().handlers:
+            handler.setLevel(logging.CRITICAL + 1)
+    
+    return logging.getLogger(__name__)
+
 def main():
     """메인 함수"""
     
-    # 모델 서버 프로세스 시작
-    print(f"🚀 Starting sign classifier WebSocket server...")
-    print(f"📁 Model data URL: {os.environ.get('MODEL_DATA_URL', 'Not set')}")
-    print(f"🔌 Port: {os.environ.get('PORT', 'Not set')}")
-    
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description='Sign Classifier WebSocket Server')
     parser.add_argument("--port", type=int, required=True, help="Port number for the server")
     parser.add_argument("--env", type=str, required=True, help="Environment variable MODEL_DATA_URL")
+    parser.add_argument("--log-level", type=str, default='INFO', 
+                       choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'OFF'],
+                       help="Set logging level (default: INFO, use OFF to disable all logs)")
     args = parser.parse_args()
     
     port = args.port
     model_data_url = args.env
+    log_level = args.log_level
+    
+    # 로깅 설정 (동적으로 설정)
+    global logger
+    logger = setup_logging(log_level)
+    
+    # 로그가 꺼져있지 않은 경우에만 시작 메시지 출력
+    if log_level.upper() != 'OFF':
+        print(f"🚀 Starting sign classifier WebSocket server...")
+        print(f"📁 Model data URL: {model_data_url}")
+        print(f"🔌 Port: {port}")
+        print(f"📊 Log level: {log_level}")
     
     # 현재 스크립트 파일의 위치를 기준으로 프로젝트 루트 계산
     current_dir = os.path.dirname(os.path.abspath(__file__))
