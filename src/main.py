@@ -19,6 +19,7 @@ from .api.search import router as search_router
 from .api.ml import router as ml_router
 from .api.recommendations import router as recommendations_router
 from .core.config import settings
+from .services.embedding import _get_model
 
 app = FastAPI(
     title="Water and Fish API",
@@ -79,4 +80,9 @@ app.include_router(badge_router)
 app.include_router(search_router)
 app.include_router(ml_router)
 app.include_router(recommendations_router)
+
+@app.on_event("startup")
+async def preload_embedding_model():
+    # 임베딩 모델을 미리 메모리에 로딩
+    _get_model()
 
