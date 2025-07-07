@@ -19,7 +19,6 @@ COPY pyproject.toml poetry.lock ./
 # 가상환경 생성 및 의존성 설치
 RUN poetry config virtualenvs.create true \
     && poetry config virtualenvs.in-project true \
-    && poetry lock --no-update \
     && poetry install --no-root --no-interaction --no-ansi --extras "linux"
 
 # 런타임 스테이지
