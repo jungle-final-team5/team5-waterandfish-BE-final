@@ -41,7 +41,7 @@ ENV PYTHONPATH=/app/src
 
 # 애플리케이션 코드 복사
 COPY ./src ./src
-COPY .env .env
+COPY .env.production .env
 
 # 포트 오픈
 EXPOSE 8000

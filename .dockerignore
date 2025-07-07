@@ -67,5 +67,5 @@ docker-compose*
 .dockerignore
 
 # Environment files
-# .env*
-# !.env.production
+.env*
+!.env.production
