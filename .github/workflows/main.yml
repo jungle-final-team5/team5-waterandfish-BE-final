@@ -55,6 +55,16 @@ jobs:
           docker build -t ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest .
           docker push  ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest
 
+      # .env.production 파일을 EC2로 복사
+      - name: Copy .env.production to EC2
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: ".env.production"
+          target: "~/.env.production"
+
       # 8. EC2에 SSH로 접속해 배포 (docker-compose 없이)
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v0.1.10
@@ -68,13 +78,12 @@ jobs:
             | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
 
             # ECR에서 이미지 pull
-            docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/waterandfish-backend:latest
+            docker pull ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest
             docker stop backend || true
             docker rm backend || true
             docker run -d --name backend -p 8000:8000 \
-              --env-file .env.production \
-              ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/waterandfish-backend:latest
+              --env-file ~/.env.production \
+              ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest
 
-# 이 워크플로우는 main 브랜치에 push/PR될 때마다 실행되며,
-# 백엔드 Docker 이미지를 빌드해서 ECR에 업로드합니다.
-# EC2 등에서 이미지를 pull해서 배포하는 방식으로 연동하면 됩니다.
+# 주의: secrets.ECR_REGISTRY는 예시로 724772079310.dkr.ecr.ap-northeast-2.amazonaws.com
+#       secrets.ECR_REPOSITORY는 예시로 waterandfish-backend
