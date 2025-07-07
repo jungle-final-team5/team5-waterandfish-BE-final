@@ -17,6 +17,7 @@ async def deploy_chapter_model(
     db: AsyncIOMotorDatabase = Depends(get_db),
     use_webrtc: bool = False
 ):
+    use_webrtc = False
     print("deploy_chapter_model")   
     """챕터에 해당하는 모델 서버를 배포하고 WebSocket URL 목록 반환"""
     user_id = require_auth(request)

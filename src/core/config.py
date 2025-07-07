@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     # MongoDB 설정
     MONGODB_URL: str = "mongodb://localhost:27017"
     DATABASE_NAME: str = "waterandfish"
+    
+    # AWS S3 설정
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_REGION: str = "ap-northeast-2"
 
     class Config:
         env_file = ".env"

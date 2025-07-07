@@ -24,39 +24,42 @@ class ModelServerManager:
             env["MODEL_DATA_URL"] = model_data_url
             env["PYTHONUNBUFFERED"] = "1"  # Python 출력 버퍼링 비활성화
             
-            # WebRTC 사용 여부에 따라 스크립트 선택
-            if use_webrtc:
-                script_path = os.path.join(os.path.dirname(__file__), "webrtc_signaling_server.py")
-                process = subprocess.Popen([
-                    "python", "-u", script_path,
-                    "--port", str(port),
-                    "--model-data-url", model_data_url,
-                    "--host", "localhost"
-                    "--debug-video"
-                ], 
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=0,
-                universal_newlines=True)
-            else:
-                script_path = os.path.join(os.path.dirname(__file__), "sign_classifier_websocket_server.py")
-                process = subprocess.Popen([
-                    "python", "-u", script_path,
-                    "--port", str(port),
-                    "--env", model_data_url,
-                    "--log-level", "INFO",
-                    # "--debug-video",
-                    "--accuracy-mode",
-                    # "--enable-profiling",
-                ], 
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=0,
-                universal_newlines=True)
+            # # WebRTC 사용 여부에 따라 스크립트 선택
+            # if use_webrtc:
+            #     script_path = os.path.join(os.path.dirname(__file__), "webrtc_signaling_server.py")
+            #     process = subprocess.Popen([
+            #         "python", "-u", script_path,
+            #         "--port", str(port),
+            #         "--model-data-url", model_data_url,
+            #         "--host", "localhost"
+            #         "--debug-video"
+            #     ], 
+            #     env=env,
+            #     stdout=subprocess.PIPE,
+            #     stderr=subprocess.STDOUT,
+            #     text=True,
+            #     bufsize=0,
+            #     universal_newlines=True)
+        
+            script_path = os.path.join(os.path.dirname(__file__), "sign_classifier_websocket_server.py")
+            # Set the working directory to the parent of the services directory
+            working_dir = os.path.dirname(os.path.dirname(__file__))
+            process = subprocess.Popen([
+                "python", "-u", script_path,
+                "--port", str(port),
+                "--env", model_data_url,
+                "--log-level", "INFO",
+                # "--debug-video",
+                "--accuracy-mode",
+                # "--enable-profiling",
+            ], 
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=0,
+            universal_newlines=True,
+            cwd=working_dir)
             
             print(f"Model server process PID: {process.pid}")
             
