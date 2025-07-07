@@ -17,6 +17,7 @@ from .api.review import router as review_router
 from .api.badge import router as badge_router
 from .api.search import router as search_router
 from .api.ml import router as ml_router
+from .api.animation import router as anim_router
 from .api.recommendations import router as recommendations_router
 from .core.config import settings
 from .services.embedding import _get_model
@@ -63,6 +64,8 @@ app.include_router(learn_router)       # /learn
 app.include_router(quiz_router)        # /quiz
 app.include_router(test_router)        # /test
 app.include_router(review_router)      # /review
+app.include_router(anim_router)        # /anim
+
 
 # 기존 RESTful API 라우터들 (하위 호환성)
 app.include_router(chapters_router)
@@ -80,6 +83,8 @@ app.include_router(badge_router)
 app.include_router(search_router)
 app.include_router(ml_router)
 app.include_router(recommendations_router)
+
+
 
 @app.on_event("startup")
 async def preload_embedding_model():

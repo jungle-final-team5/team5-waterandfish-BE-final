@@ -344,4 +344,37 @@ async def update_chapter_lessons_progress(
     return {
         "success": True,
         "message": "학습 진행 상태 업데이트 완료"
-    } 
+    }
+
+
+
+@router.get("chapters/{chapter_id}/lessons")
+async def get_chapter_lessons_progress(
+    chapter_id: str,
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """특정 챕터 내 레슨 학습 진행 상태 조회"""
+    user_id = require_auth(request)
+    try:
+        obj_id = ObjectId(chapter_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid chapter ID"
+        )
+    lessons = await db.Lessons.find({"chapter_id": obj_id}).to_list(length=None)
+    lesson_ids = [lesson["_id"] for lesson in lessons]
+    progress = await db.User_Lesson_Progress.find({
+        "user_id": ObjectId(user_id),
+        "lesson_id": {"$in": lesson_ids}
+    }).to_list(length=None)
+    progress_dict = {str(p["lesson_id"]): p for p in progress}
+    for lesson in lessons:
+        lesson_progress = progress_dict.get(str(lesson["_id"]), {})
+        lesson["progress"] = lesson_progress.get("status", "not_started")
+    return {
+        "success": True,
+        "data": convert_objectid(lessons),
+        "message": "레슨 학습 진행 상태 조회 성공"
+    }
