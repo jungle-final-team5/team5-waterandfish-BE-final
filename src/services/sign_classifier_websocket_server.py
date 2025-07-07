@@ -16,11 +16,18 @@ from datetime import datetime
 import argparse
 import time  # 성능 측정용
 
+# Add the current directory to sys.path to enable imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
+from s3_utils import s3_utils
+
 # 로깅 설정은 main() 함수에서 동적으로 설정됩니다
 logger = logging.getLogger(__name__)
 
 class SignClassifierWebSocketServer:
-    def __init__(self, model_data_url, host, port, debug_video=False, frame_skip=3, prediction_interval=10, max_frame_width=640, enable_profiling=False, aggressive_mode=False, accuracy_mode=False):
+    def __init__(self, model_info_url, host, port, debug_video=False, frame_skip=3, prediction_interval=10, max_frame_width=640, enable_profiling=False, aggressive_mode=False, accuracy_mode=False):
         """수어 분류 WebSocket 서버 초기화"""
         self.host = host
         self.port = port
@@ -66,28 +73,42 @@ class SignClassifierWebSocketServer:
         }
         
         # 모델 정보 로드
-        self.model_info = self.load_model_info(model_data_url)
+        self.model_info = self.load_model_info(model_info_url)
         if not self.model_info:
             raise ValueError("모델 정보를 로드할 수 없습니다.")
         
         # 설정값
         self.MAX_SEQ_LENGTH = self.model_info["input_shape"][0]
         
-        # 모델 경로 처리 (절대 경로로 변환)
+        # 모델 경로 처리 (S3 URL 또는 로컬 경로)
         model_path = self.model_info["model_path"]
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(os.path.dirname(current_dir))
         
-        # 상대 경로인 경우 public 디렉터리를 기준으로 변환
-        if not os.path.isabs(model_path):
-            if not model_path.startswith("public"):
-                model_path = os.path.join("public", model_path)
-            self.MODEL_SAVE_PATH = os.path.join(project_root, model_path)
-        else:
-            self.MODEL_SAVE_PATH = model_path
+        # s3://waterandfish-s3/models/ 디렉터리에서 찾기
+        model_path = f"s3://waterandfish-s3/{model_path}"
         
-        # 경로 정규화
-        self.MODEL_SAVE_PATH = os.path.normpath(self.MODEL_SAVE_PATH)
+        # 먼저 S3에서 시도
+        
+        try:
+            logger.info(f"📁 S3에서 모델 파일 다운로드 중: {model_path}")
+            
+            # S3에서 모델 파일 다운로드
+            self.MODEL_SAVE_PATH = s3_utils.download_file_from_s3(model_path)
+            
+            logger.info(f"✅ S3 모델 파일 다운로드 완료: {self.MODEL_SAVE_PATH}")
+        except Exception as e:
+            logger.warning(f"⚠️ S3 다운로드 실패, 로컬 경로로 시도: {e}")
+            # 로컬 경로 처리
+            # model_path가 이미 "models/"로 시작하는 경우 중복 방지
+            if model_path.startswith("models/"):
+                # "models/" 부분을 제거하고 파일명만 사용
+                model_filename = model_path[7:]  # "models/" 제거
+                local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "public", "models", model_filename)
+            else:
+                # 그대로 사용
+                local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "public", "models", model_path)
+            
+            self.MODEL_SAVE_PATH = local_path
+            # self._setup_local_model_path(model_path)
         
         self.ACTIONS = self.model_info["labels"]
         self.QUIZ_LABELS = [a for a in self.ACTIONS if a != "None"]
@@ -171,33 +192,44 @@ class SignClassifierWebSocketServer:
         # 시퀀스 관리 (클라이언트별로 관리)
         self.client_sequence_managers = {}  # {client_id: {last_prediction, same_count}}
     
-    def load_model_info(self, model_data_url):
+    def load_model_info(self, model_info_url):
         """모델 정보 파일을 로드합니다."""
         try:
-            # 현재 스크립트 파일의 위치를 기준으로 프로젝트 루트 계산
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            # src/services에서 프로젝트 루트로 이동 (2단계 상위)
-            project_root = os.path.dirname(os.path.dirname(current_dir))
+            # S3 URL인지 확인
+            if model_info_url.startswith('s3://'):
+                logger.info(f"📁 S3에서 모델 정보 파일 다운로드 중: {model_info_url}")
+                
+                # S3에서 파일 다운로드
+                local_path = s3_utils.download_file_from_s3(model_info_url)
+                model_info_url = local_path
+                logger.info(f"✅ S3 파일 다운로드 완료: {local_path}")
+            else:
+                # 로컬 파일 경로 처리
+                # 현재 스크립트 파일의 위치를 기준으로 프로젝트 루트 계산
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                # src/services에서 프로젝트 루트로 이동 (2단계 상위)
+                project_root = os.path.dirname(os.path.dirname(current_dir))
+                
+                # 파일명만 전달된 경우 public/model-info/ 디렉터리에서 찾기
+                if os.path.basename(model_info_url) == model_info_url:
+                    # 파일명만 전달된 경우
+                    model_info_url = os.path.join("public", "model-info", model_info_url)
+                
+                # 상대 경로인 경우 프로젝트 루트를 기준으로 절대 경로로 변환
+                if not os.path.isabs(model_info_url):
+                    model_info_url = os.path.join(project_root, model_info_url)
+                
+                # 경로 정규화
+                model_info_url = os.path.normpath(model_info_url)
             
-            # 파일명만 전달된 경우 public/model-info/ 디렉터리에서 찾기
-            if os.path.basename(model_data_url) == model_data_url:
-                # 파일명만 전달된 경우
-                model_data_url = os.path.join("public", "model-info", model_data_url)
+            logger.info(f"📁 모델 정보 파일 경로: {model_info_url}")
             
-            # 상대 경로인 경우 프로젝트 루트를 기준으로 절대 경로로 변환
-            if not os.path.isabs(model_data_url):
-                model_data_url = os.path.join(project_root, model_data_url)
-            
-            # 경로 정규화
-            model_data_url = os.path.normpath(model_data_url)
-            
-            logger.info(f"📁 모델 정보 파일 경로: {model_data_url}")
-            
-            if not os.path.exists(model_data_url):
-                logger.error(f"❌ 모델 정보 파일을 찾을 수 없습니다: {model_data_url}")
+            # 파일 존재 여부 확인 (S3에서 다운로드한 경우는 이미 존재함)
+            if not model_info_url.startswith('s3://') and not os.path.exists(model_info_url):
+                logger.error(f"❌ 모델 정보 파일을 찾을 수 없습니다: {model_info_url}")
                 return None
             
-            with open(model_data_url, "r", encoding="utf-8") as f:
+            with open(model_info_url, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
             logger.error(f"❌ 모델 정보 파일 로드 실패: {e}")
@@ -806,45 +838,12 @@ def setup_logging(log_level='INFO'):
     
     return logging.getLogger(__name__)
 
-def setup_logging(log_level='INFO'):
-    """로깅 설정을 동적으로 구성"""
-    # 로그 레벨 매핑
-    level_map = {
-        'DEBUG': logging.DEBUG,
-        'INFO': logging.INFO,
-        'WARNING': logging.WARNING,
-        'ERROR': logging.ERROR,
-        'CRITICAL': logging.CRITICAL,
-        'OFF': logging.CRITICAL + 1  # 로그를 완전히 끄기 위한 레벨
-    }
-    
-    # 로그 레벨 설정
-    numeric_level = level_map.get(log_level.upper(), logging.INFO)
-    
-    # 로깅 기본 설정
-    logging.basicConfig(
-        level=numeric_level,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
-        force=True  # 기존 로깅 설정 덮어쓰기
-    )
-    
-    # 로그가 완전히 꺼진 경우 알림 (단, 이 알림은 출력되지 않음)
-    if log_level.upper() == 'OFF':
-        # 로그를 끄기 위해 모든 로거의 레벨을 높임
-        logging.getLogger().setLevel(logging.CRITICAL + 1)
-        # 핸들러도 같은 레벨로 설정
-        for handler in logging.getLogger().handlers:
-            handler.setLevel(logging.CRITICAL + 1)
-    
-    return logging.getLogger(__name__)
-
 def main():
     """메인 함수"""
     
     parser = argparse.ArgumentParser(description='Sign Classifier WebSocket Server')
     parser.add_argument("--port", type=int, required=True, help="Port number for the server")
-    parser.add_argument("--env", type=str, required=True, help="Environment variable MODEL_DATA_URL")
+    parser.add_argument("--env", type=str, required=True, help="Environment variable model_info_URL")
     parser.add_argument("--log-level", type=str, default='INFO', 
                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'OFF'],
                        help="Set logging level (default: INFO, use OFF to disable all logs)")
@@ -865,7 +864,7 @@ def main():
     args = parser.parse_args()
     
     port = args.port
-    model_data_url = args.env
+    model_info_url = args.env
     log_level = args.log_level
     debug_video = args.debug_video
     frame_skip = args.frame_skip
@@ -882,7 +881,7 @@ def main():
     # 로그가 꺼져있지 않은 경우에만 시작 메시지 출력
     if log_level.upper() != 'OFF':
         print(f"🚀 Starting sign classifier WebSocket server...")
-        print(f"📁 Model data URL: {model_data_url}")
+        print(f"📁 Model data URL: {model_info_url}")
         print(f"🔌 Port: {port}")
         print(f"📊 Log level: {log_level}")
         print(f"🎥 Debug video: {debug_video}")
@@ -900,35 +899,38 @@ def main():
     # src/services에서 프로젝트 루트로 이동 (2단계 상위)
     project_root = os.path.dirname(os.path.dirname(current_dir))
     
-    # 파일명만 전달된 경우 public/model-info/ 디렉터리에서 찾기
-    model_data_url_processed = model_data_url
-    if os.path.basename(model_data_url) == model_data_url:
+    # 파일명만 전달된 경우 s3://waterandfish-s3/model-info/ 디렉터리에서 찾기
+    model_info_url_processed = model_info_url
+    if os.path.basename(model_info_url) == model_info_url:
         # 파일명만 전달된 경우
-        model_data_url_processed = os.path.join("public", "model-info", model_data_url)
+        model_info_url_processed = f"s3://waterandfish-s3/model-info/{model_info_url}"
     
-    # 상대 경로인 경우 프로젝트 루트를 기준으로 절대 경로로 변환
-    if not os.path.isabs(model_data_url_processed):
-        model_data_url_full = os.path.join(project_root, model_data_url_processed)
-    else:
-        model_data_url_full = model_data_url_processed
-    
-    # 경로 정규화
-    model_data_url_full = os.path.normpath(model_data_url_full)
-    
-    logger.info(f"📁 원본 모델 데이터 URL: {model_data_url}")
-    logger.info(f"📁 처리된 모델 데이터 경로: {model_data_url_processed}")
-    logger.info(f"📁 최종 모델 데이터 경로: {model_data_url_full}")
+    logger.info(f"📁 원본 모델 데이터 URL: {model_info_url}")
+    logger.info(f"📁 처리된 모델 데이터 경로: {model_info_url_processed}")
     logger.info(f"🔌 포트: {port}")
     
-    if not os.path.exists(model_data_url_full):
-        logger.error(f"❌ 모델 정보 파일을 찾을 수 없습니다: {model_data_url_full}")
-        sys.exit(1)
-    
-    logger.info(f"✅ 모델 정보 파일 확인됨: {model_data_url_full}")
+    # S3 URL인지 확인
+    if model_info_url_processed.startswith('s3://'):
+        logger.info(f"✅ S3 모델 경로 확인됨: {model_info_url_processed}")
+    else:
+        # 로컬 파일 경로인 경우 존재 여부 확인
+        if not os.path.isabs(model_info_url_processed):
+            model_info_url_full = os.path.join(project_root, model_info_url_processed)
+        else:
+            model_info_url_full = model_info_url_processed
+        
+        # 경로 정규화
+        model_info_url_full = os.path.normpath(model_info_url_full)
+        
+        if not os.path.exists(model_info_url_full):
+            logger.error(f"❌ 모델 정보 파일을 찾을 수 없습니다: {model_info_url_full}")
+            sys.exit(1)
+        
+        logger.info(f"✅ 로컬 모델 정보 파일 확인됨: {model_info_url_full}")
     
     # 서버 생성 및 실행
     # localhost should be changed to the server's IP address when deploying to a server
-    server = SignClassifierWebSocketServer(model_data_url, host="localhost", port=port, debug_video=debug_video, frame_skip=frame_skip, prediction_interval=prediction_interval, max_frame_width=max_frame_width, enable_profiling=enable_profiling, aggressive_mode=aggressive_mode, accuracy_mode=accuracy_mode)
+    server = SignClassifierWebSocketServer(model_info_url_processed, host="localhost", port=port, debug_video=debug_video, frame_skip=frame_skip, prediction_interval=prediction_interval, max_frame_width=max_frame_width, enable_profiling=enable_profiling, aggressive_mode=aggressive_mode, accuracy_mode=accuracy_mode)
     
     # 디버그 모드 활성화 시 알림
     if debug_video:
