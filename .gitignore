@@ -8,6 +8,7 @@ __pycache__/
 
 # Poetry
 .poetry/
+poetry.lock
 
 # VSCode
 .vscode/
