@@ -15,27 +15,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2. .env.production 파일 생성 (Secrets에서)
-      - name: Create .env.production
-        run: |
-          echo "MONGODB_URL=${{ secrets.MONGODB_URL }}" >> .env.production
-          echo "DATABASE_NAME=${{ secrets.DATABASE_NAME }}" >> .env.production
-          echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> .env.production
-          echo "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" >> .env.production
-          echo "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" >> .env.production
-          echo "KAKAO_CLIENT_ID=${{ secrets.KAKAO_CLIENT_ID }}" >> .env.production
-          echo "KAKAO_CLIENT_SECRET=${{ secrets.KAKAO_CLIENT_SECRET }}" >> .env.production
-          echo "ACCESS_TOKEN_EXPIRE_MINUTES=60" >> .env.production
-          echo "ALGORITHM=HS256" >> .env.production
-          echo "GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}" >> .env.production
-          echo "KAKAO_REDIRECT_URI=${{ secrets.KAKAO_REDIRECT_URI }}" >> .env.production
-          echo "CORS_ORIGINS=[\"http://13.209.142.150\"]" >> .env.production
-          echo "FRONTEND_URL=${{ secrets.FRONTEND_URL }}" >> .env.production
-          echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> .env.production
-          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> .env.production
-          echo "AWS_REGION=ap-northeast-2" >> .env.production
-
-      # 3. AWS 인증 정보 설정 (ECR 접근을 위해 필요)
+      # 2. AWS 인증 정보 설정 (ECR 접근을 위해 필요)
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -43,7 +23,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-northeast-2
 
-      # 4. ECR에 Docker 로그인
+      # 3. ECR에 Docker 로그인
       - name: Login to Amazon ECR
         run: |
           aws ecr get-login-password --region ap-northeast-2 | \
@@ -52,18 +32,8 @@ jobs:
       # Docker 이미지 빌드 & 푸시
       - name: Build and push Docker image
         run: |
-          docker build -t ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest .
-          docker push  ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest
-
-      # .env.production 파일을 EC2로 복사
-      - name: Copy .env.production to EC2
-        uses: appleboy/scp-action@v0.1.4
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: ".env.production"
-          target: "~/env.production"
+          docker build -t ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:${{ github.sha }} .
+          docker push  ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
 
       # 8. EC2에 SSH로 접속해 배포 (docker-compose 없이)
       - name: Deploy to EC2
@@ -87,12 +57,26 @@ jobs:
             # 배포
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} \
             | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
-            docker pull ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest
+            docker pull ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
             docker stop backend || true
             docker rm backend || true
             docker run -d --name backend -p 8000:8000 \
-              --env-file ~/env.production \
-              ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest
+              -e MONGODB_URL=${{ secrets.MONGODB_URL }} \
+              -e DATABASE_NAME=${{ secrets.DATABASE_NAME }} \
+              -e SECRET_KEY=${{ secrets.SECRET_KEY }} \
+              -e GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} \
+              -e GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} \
+              -e KAKAO_CLIENT_ID=${{ secrets.KAKAO_CLIENT_ID }} \
+              -e KAKAO_CLIENT_SECRET=${{ secrets.KAKAO_CLIENT_SECRET }} \
+              -e ACCESS_TOKEN_EXPIRE_MINUTES=${{ secrets.ACCESS_TOKEN_EXPIRE_MINUTES }} \
+              -e ALGORITHM=${{ secrets.ALGORITHM }} \
+              -e GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }} \
+              -e KAKAO_REDIRECT_URI=${{ secrets.KAKAO_REDIRECT_URI }} \
+              -e CORS_ORIGINS=${{ secrets.CORS_ORIGINS }} \
+              -e FRONTEND_URL=${{ secrets.FRONTEND_URL }} \
+              -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
+              -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+              -e AWS_REGION=${{ secrets.AWS_REGION }} \
+              ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
 
-# 주의: secrets.ECR_REGISTRY는 예시로 724772079310.dkr.ecr.ap-northeast-2.amazonaws.com
-#       secrets.ECR_REPOSITORY는 예시로 waterandfish-backend
+# 주의: EC2에 불필요한 .env 파일이 남아 있다면 삭제 권장
