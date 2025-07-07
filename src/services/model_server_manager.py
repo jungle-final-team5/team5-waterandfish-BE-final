@@ -31,7 +31,9 @@ class ModelServerManager:
                 "python", "-u", script_path,  # -u 플래그로 unbuffered 출력
                 "--port", str(port),
                 "--env", model_data_url,
-                "--log-level", "OFF"
+                "--log-level", "INFO",
+                "--debug-video",
+                "--aggressive-mode",
             ], 
             env=env,
             stdout=subprocess.PIPE,
