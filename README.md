@@ -22,6 +22,8 @@ team5-waterandfish-BE/
 
 ### 설치 및 실행
 
+#### 로컬 개발 환경
+
 1. Python 3.9+ 설치
 2. Poetry 설치
 3. 의존성 설치:
@@ -43,6 +45,33 @@ KAKAO_CLIENT_SECRET=your-kakao-client-secret
 ```bash
 poetry run uvicorn src.main:app --reload
 ```
+
+#### Docker 환경 (권장)
+
+##### 프로덕션 빌드 (최적화됨)
+```bash
+# 최적화된 빌드 스크립트 사용
+./build.sh
+
+# 또는 직접 빌드
+docker build -t team5-waterandfish-be:latest .
+docker run -p 8000:8000 team5-waterandfish-be:latest
+```
+
+##### 개발 환경 (핫 리로드)
+```bash
+# 개발용 서비스 실행
+docker-compose --profile dev up backend-dev
+
+# 또는 전체 서비스 실행
+docker-compose up
+```
+
+##### 빌드 최적화 기능
+- **멀티스테이지 빌드**: 빌드와 런타임 분리
+- **레이어 캐싱**: 의존성 변경 시에만 재빌드
+- **빌드 컨텍스트 최적화**: 불필요한 파일 제외
+- **캐시 활용**: 이전 빌드 결과 재사용
 
 ### API 엔드포인트
 
