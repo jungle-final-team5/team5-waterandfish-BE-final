@@ -14,7 +14,8 @@ router = APIRouter(prefix="/ml", tags=["ml"])
 async def deploy_chapter_model(
     chapter_id: str,
     request: Request,
-    db: AsyncIOMotorDatabase = Depends(get_db)
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    use_webrtc: bool = False
 ):
     print("deploy_chapter_model")   
     """챕터에 해당하는 모델 서버를 배포하고 WebSocket URL 목록 반환"""
@@ -38,7 +39,7 @@ async def deploy_chapter_model(
     
     try:
         # 모델 서버 배포
-        ws_urls = await deploy_model(chapter_obj_id, db)
+        ws_urls = await deploy_model(chapter_obj_id, db, use_webrtc)
         print('ws_urls', ws_urls)
         if not ws_urls:
             return JSONResponse(
@@ -50,12 +51,13 @@ async def deploy_chapter_model(
                 }
             )
         
+        server_type = "WebRTC" if use_webrtc else "WebSocket"
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "success": True,
-                "data": {"ws_urls": ws_urls},
-                "message": f"모델 서버 배포 완료: {len(ws_urls)}개"
+                "data": {"ws_urls": ws_urls, "server_type": server_type},
+                "message": f"{server_type} 모델 서버 배포 완료: {len(ws_urls)}개"
             }
         )
         

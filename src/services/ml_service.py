@@ -8,7 +8,7 @@ from ..db.session import get_db
 
 running_models = defaultdict(list)
 
-async def deploy_model(chapter_id, db: AsyncIOMotorDatabase = None):
+async def deploy_model(chapter_id, db: AsyncIOMotorDatabase = None, use_webrtc: bool = False):
     """챕터에 해당하는 모델 서버를 배포"""
     if db is None:
         # db가 없으면 새로 가져오기 (이상적으로는 의존성 주입 사용)
@@ -34,7 +34,7 @@ async def deploy_model(chapter_id, db: AsyncIOMotorDatabase = None):
             ws_urls.append(running_models[model_id]) 
         else: # 모델 서버 시작
             try:
-                ws_url = await model_server_manager.start_model_server(model_id, model_data_url)
+                ws_url = await model_server_manager.start_model_server(model_id, model_data_url, True)
             except Exception as e:
                 print(f"Failed to start model server for {model_id}: {str(e)}")
                 # Continue with other models even if one fails
@@ -42,7 +42,8 @@ async def deploy_model(chapter_id, db: AsyncIOMotorDatabase = None):
             ws_urls.append(ws_url)
             running_models[model_id] = ws_url
             model_server_manager.running_servers[model_id] = ws_url
-            print(f"Model server deployed for chapter {chapter_id}: {ws_url}")
+            server_type = "WebRTC" if use_webrtc else "WebSocket"
+            print(f"{server_type} model server deployed for chapter {chapter_id}: {ws_url}")
             
     
     return ws_urls
