@@ -2,10 +2,12 @@ from datetime import datetime
 import json
 import os
 from fastapi import APIRouter, Request, HTTPException, Depends, status
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..db.session import get_db
+import boto3
+import io
 
 router = APIRouter(prefix="/anim", tags=["anim"])
 
@@ -28,6 +30,7 @@ async def get_lesson_animation_by_id(
         )
     
     lesson = await db.Lessons.find_one({"_id": obj_id})
+    # print("[animation] lesson", lesson)
     if not lesson:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
@@ -35,16 +38,36 @@ async def get_lesson_animation_by_id(
         )
     
     anim_filename = lesson.get("media_url", "default")
-    file_path = f"public/animations/{anim_filename}"
-
-    if not os.path.exists(file_path):
+    print("[animation] anim_filename", anim_filename)
+    
+    # S3에서 파일 다운로드
+    try:
+        s3_client = boto3.client('s3')
+        bucket_name = 'waterandfish-s3'
+        key = f'animations/{anim_filename}'
+        
+        # S3에서 파일 객체 가져오기
+        response = s3_client.get_object(Bucket=bucket_name, Key=key)
+        file_content = response['Body'].read()
+        
+        # 파일 내용을 Response로 반환
+        return Response(
+            content=file_content,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f"attachment; filename={anim_filename}",
+                "Cache-Control": "public, max-age=3600"  # 1시간 캐시
+            }
+        )
+        
+    except s3_client.exceptions.NoSuchKey:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Animation file not found"
+            detail="Animation file not found in S3"
         )
-
-    return FileResponse(
-        path=file_path,
-        filename=anim_filename,
-        media_type="application/json"
-    )
+    except Exception as e:
+        print(f"[animation] S3 error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving animation file from S3"
+        )
