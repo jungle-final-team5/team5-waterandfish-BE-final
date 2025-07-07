@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      cache_from:
+        - team5-waterandfish-be:latest
+    image: team5-waterandfish-be:latest
+    container_name: waterandfish-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app/src
+    volumes:
+      # 개발 시 코드 변경사항을 즉시 반영
+      - ./src:/app/src:ro
+      - ./.env.production:/app/.env:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 개발용 서비스 (핫 리로드)
+  backend-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: waterandfish-backend-dev
+    ports:
+      - "8001:8000"
+    environment:
+      - PYTHONPATH=/app/src
+    volumes:
+      - ./src:/app/src
+      - ./.env.production:/app/.env:ro
+    restart: unless-stopped
+    profiles:
+      - dev 

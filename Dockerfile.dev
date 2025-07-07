@@ -1,0 +1,31 @@
+FROM --platform=linux/amd64 python:3.11-slim
+
+# 개발 의존성 설치
+RUN apt-get update && apt-get install -y \
+    gcc \
+    python3-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Poetry 설치
+RUN pip install poetry
+
+WORKDIR /app
+
+# 의존성 파일들 복사
+COPY pyproject.toml poetry.lock ./
+
+# 가상환경 생성 및 의존성 설치 (개발 의존성 포함)
+RUN poetry config virtualenvs.create true \
+    && poetry config virtualenvs.in-project true \
+    && poetry install --no-root --no-interaction --no-ansi --extras "linux"
+
+# 환경 변수 설정
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH=/app/src
+
+# 포트 오픈
+EXPOSE 8000
+
+# 개발용 명령어 (핫 리로드)
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"] 
