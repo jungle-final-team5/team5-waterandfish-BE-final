@@ -47,23 +47,14 @@ jobs:
       - name: Login to Amazon ECR
         run: |
           aws ecr get-login-password --region ap-northeast-2 | \
-          docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com
-
-      # 5. Docker 이미지 빌드
-      - name: Build Docker image
-        run: |
-          docker build -t waterandfish-backend:latest .
-
-      # 6. ECR에 push할 태그 추가
-      - name: Tag Docker image for ECR
-        run: |
-          docker tag waterandfish-backend:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/waterandfish-backend:latest
-
-      # 7. Docker 이미지를 ECR에 push
-      - name: Push Docker image to ECR
-        run: |
-          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/waterandfish-backend:latest
+          docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
      
+      # Docker 이미지 빌드 & 푸시
+      - name: Build and push Docker image
+        run: |
+          docker build -t ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest .
+          docker push  ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest
+
       # 8. EC2에 SSH로 접속해 배포 (docker-compose 없이)
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v0.1.10
@@ -75,6 +66,7 @@ jobs:
             # EC2 내부에서 ECR 인증
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} \
             | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
+
             # ECR에서 이미지 pull
             docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/waterandfish-backend:latest
             docker stop backend || true
