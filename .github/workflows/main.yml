@@ -38,15 +38,20 @@ jobs:
           sed -i 's/\\n/\n/g' key.pem
           chmod 600 key.pem
 
+      # EC2 상태 확인
+      - name: Check EC2 status
+        run: |
+          ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} 'df -h && pwd && whoami && ls -la /home/ubuntu/'
+      
       # backend 폴더 삭제 후 재생성 및 소유권 변경
       - name: Clean and prepare remote backend directory
         run: |
-          ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} 'sudo rm -rf /home/ubuntu/backend && mkdir /home/ubuntu/backend && sudo chown ubuntu:ubuntu /home/ubuntu/backend'
+          ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} 'sudo rm -rf /home/ubuntu/backend && mkdir -p /home/ubuntu/backend && sudo chown ubuntu:ubuntu /home/ubuntu/backend && df -h'
       
-      # EC2에 파일 복사
-      - name: Copy files to EC2
+      # 필요한 파일들만 복사 (.git 제외)
+      - name: Copy files to EC2 (excluding .git)
         run: |
-          scp -i key.pem -o StrictHostKeyChecking=no -r ./ ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/backend
+          rsync -avz --exclude='.git' --exclude='key.pem' --exclude='__pycache__' --exclude='*.pyc' -e "ssh -i key.pem -o StrictHostKeyChecking=no" ./ ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/backend/
 
       # EC2에 접속해서 컨테이너 재시작
       - name: SSH to EC2 and restart backend

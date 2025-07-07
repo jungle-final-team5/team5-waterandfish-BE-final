@@ -6,11 +6,12 @@ WORKDIR /app
 # 2. Poetry 설치
 RUN pip install poetry
 
-# 3. pyproject.toml, poetry.lock, README.md 복사
-COPY pyproject.toml poetry.lock README.md ./
+# 3. pyproject.toml, README.md 복사
+COPY pyproject.toml README.md ./
 
 # 4. 루트 패키지 포함 전체 의존성 설치
 RUN poetry config virtualenvs.create false \
+  && poetry lock --no-cache --no-interaction \
   && poetry install --no-root --no-interaction --no-ansi
 
 COPY .env.production .env
