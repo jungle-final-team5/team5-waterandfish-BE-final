@@ -63,7 +63,7 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           source: ".env.production"
-          target: "~/.env.production"
+          target: "~/env.production"
 
       # 8. EC2에 SSH로 접속해 배포 (docker-compose 없이)
       - name: Deploy to EC2
@@ -73,16 +73,25 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            # EC2 내부에서 ECR 인증
+            # awscli 설치 (최초 1회만 필요)
+            if ! command -v aws &> /dev/null; then
+              curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+              unzip awscliv2.zip
+              sudo ./aws/install
+            fi
+            # docker 설치 (최초 1회만 필요)
+            if ! command -v docker &> /dev/null; then
+              sudo apt-get update && sudo apt-get install -y docker.io
+              sudo usermod -aG docker $USER
+            fi
+            # 배포
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} \
             | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
-
-            # ECR에서 이미지 pull
             docker pull ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest
             docker stop backend || true
             docker rm backend || true
             docker run -d --name backend -p 8000:8000 \
-              --env-file ~/.env.production \
+              --env-file ~/env.production \
               ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest
 
 # 주의: secrets.ECR_REGISTRY는 예시로 724772079310.dkr.ecr.ap-northeast-2.amazonaws.com
