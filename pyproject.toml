@@ -27,11 +27,12 @@ sentence-transformers = "<3.0.0"
 safetensors = "^0.5.3"
 opencv-python = "^4.8.0"
 mediapipe = "^0.10.0"
+# TensorFlow 설치 - 아키텍처별 구분
 tensorflow = {version = "^2.15.0", markers = "sys_platform != 'darwin' or platform_machine != 'arm64'"}
+tensorflow-macos = {version = "^2.16.2", markers = "sys_platform == 'darwin' and platform_machine == 'arm64'"}
 websockets = "^12.0"
 pillow = "^10.0.0"
-tensorflow-macos = "^2.16.2"
-# JAX 의존성 추가 - 호환 버전 명시 (tensorflow와 호환되는 버전)
+# JAX 의존성 - 모든 아키텍처에서 호환
 jax = ">=0.4.30,<0.5.0"
 jaxlib = ">=0.4.30,<0.5.0"
 
