@@ -180,4 +180,22 @@ async def delete_lesson(
     return {
         "success": True,
         "message": "레슨 삭제 성공"
-    } 
+    }
+
+@router.post("/{lesson_id}/view")
+async def increase_lesson_view(
+    lesson_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """특정 lesson의 조회수(views)를 1 증가"""
+    try:
+        obj_id = ObjectId(lesson_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid lesson ID")
+    result = await db.Lessons.update_one(
+        {"_id": obj_id},
+        {"$inc": {"views": 1}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    return {"success": True, "message": "조회수 1 증가 완료"} 
