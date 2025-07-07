@@ -5,35 +5,35 @@ import os
 
 class Settings(BaseSettings):
     # CORS 설정 (쉼표로 구분된 문자열)
-    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
+    CORS_ORIGINS: str = Field("http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173", env="CORS_ORIGINS")
     root_path: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
     # 프론트엔드 URL 설정 (배포 환경용)
-    FRONTEND_URL: str = "http://localhost:5173"
+    FRONTEND_URL: str = Field("http://localhost:5173", env="FRONTEND_URL")
 
     # JWT 설정
-    SECRET_KEY: str = "your-secret-key-here"
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    SECRET_KEY: str = Field("", env="SECRET_KEY")
+    ALGORITHM: str = Field("HS256", env="ALGORITHM")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(30, env="ACCESS_TOKEN_EXPIRE_MINUTES")
 
     # Google OAuth2 설정
-    GOOGLE_CLIENT_ID: str = ""
-    GOOGLE_CLIENT_SECRET: str = ""
-    GOOGLE_REDIRECT_URI: str = ""
+    GOOGLE_CLIENT_ID: str = Field("", env="GOOGLE_CLIENT_ID")
+    GOOGLE_CLIENT_SECRET: str = Field("", env="GOOGLE_CLIENT_SECRET")
+    GOOGLE_REDIRECT_URI: str = Field("", env="GOOGLE_REDIRECT_URI")
 
     # Kakao OAuth2 설정
-    KAKAO_CLIENT_ID: str = ""
-    KAKAO_CLIENT_SECRET: str = ""
-    KAKAO_REDIRECT_URI: str = ""
+    KAKAO_CLIENT_ID: str = Field("", env="KAKAO_CLIENT_ID")
+    KAKAO_CLIENT_SECRET: str = Field("", env="KAKAO_CLIENT_SECRET")
+    KAKAO_REDIRECT_URI: str = Field("", env="KAKAO_REDIRECT_URI")
 
     # MongoDB 설정
-    MONGODB_URL: str = "mongodb://localhost:27017"
-    DATABASE_NAME: str = "waterandfish"
+    MONGODB_URL: str = Field("", env="MONGODB_URL")
+    DATABASE_NAME: str = Field("waterandfish", env="DATABASE_NAME")
     
     # AWS S3 설정
-    AWS_ACCESS_KEY_ID: str = ""
-    AWS_SECRET_ACCESS_KEY: str = ""
-    AWS_REGION: str = "ap-northeast-2"
+    AWS_ACCESS_KEY_ID: str = Field("", env="AWS_ACCESS_KEY_ID")
+    AWS_SECRET_ACCESS_KEY: str = Field("", env="AWS_SECRET_ACCESS_KEY")
+    AWS_REGION: str = Field("ap-northeast-2", env="AWS_REGION")
 
     class Config:
         env_file = ".env"
