@@ -109,7 +109,7 @@ async def get_categories(request: Request, db: AsyncIOMotorDatabase = Depends(ge
                 "id": str(chapter["_id"]),
                 "title": chapter["title"],
                 "type": chapter.get("type", None),
-                "signs": lesson_list,
+                "lessons": lesson_list,
                 "categoryId": str(category_id),
                 "order_index": chapter.get("order", chapter.get("order_index", 0))
             })
