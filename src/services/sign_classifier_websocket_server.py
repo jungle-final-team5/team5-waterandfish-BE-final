@@ -489,6 +489,16 @@ class SignClassifierWebSocketServer:
         # 로그 출력 주기 제한 (너무 빈번한 로그 방지)
         if current_time - self.last_log_time >= self.log_interval:
             logger.info(f"🎯 [{client_id}] 예측: {result['prediction']} (신뢰도: {result['confidence']:.3f})")
+
+            message = json.dumps({
+                "type": "classification_log",
+                "data": result,
+                "client_id": client_id,
+                "timestamp": asyncio.get_event_loop().time()
+            })
+            for ws in list(self.clients):
+                asyncio.create_task(ws.send(message))
+
             self.last_log_time = current_time
         
         # 분류 횟수 증가
