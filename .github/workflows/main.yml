@@ -63,7 +63,7 @@ jobs:
           docker pull ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
           docker stop backend || true
           docker rm backend || true
-          docker run -d --name backend -p 8000:8000 \
+          docker run -d --name backend -p 8000:8000 -p 9001-9099:9001-9099 \
             -e MONGODB_URL=${{ secrets.MONGODB_URL }} \
             -e DATABASE_NAME=${{ secrets.DATABASE_NAME }} \
             -e SECRET_KEY=${{ secrets.SECRET_KEY }} \
