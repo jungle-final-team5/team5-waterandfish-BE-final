@@ -20,7 +20,7 @@ async def deploy_model(chapter_id, db: AsyncIOMotorDatabase = None, use_webrtc: 
         raise Exception(f"Chapter with id {chapter_id} not found")
     
     # 해당 챕터의 레슨들 조회
-    lessons = await db.Lessons.find({"chapter_id": chapter_id}).to_list(length=None)
+    lessons = await db.Lessons.find({"chapter_id": chapter_id}).to_list(length=None)    
     
     # 모델 데이터 URL이 있는 레슨 확인
     model_data_urls = [lesson.get("model_data_url") for lesson in lessons if lesson.get("model_data_url")]
@@ -44,6 +44,10 @@ async def deploy_model(chapter_id, db: AsyncIOMotorDatabase = None, use_webrtc: 
             model_server_manager.running_servers[model_id] = ws_url
             server_type = "WebRTC" if use_webrtc else "WebSocket"
             print(f"{server_type} model server deployed for chapter {chapter_id}: {ws_url}")
-            
     
-    return ws_urls
+    lesson_mapper = defaultdict(str)
+    for lesson in lessons:
+        lesson_mapper[str(lesson["_id"])] = running_models[lesson["model_data_url"]]
+    print('[ml_service]lesson_mapper', lesson_mapper)
+    
+    return ws_urls, lesson_mapper
