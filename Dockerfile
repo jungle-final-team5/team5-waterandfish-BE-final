@@ -8,7 +8,6 @@ FROM python:3.11-slim AS builder
 # 빌드 도구만 임시 설치
 RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc build-essential && \
-    apt-get install -y libgl1 && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -37,6 +36,8 @@ COPY src/ src/
 #######################
 FROM python:3.11-slim
 WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 && rm -rf /var/lib/apt/lists/*
 
 # venv 통째로 복사 (시스템 툴·Poetry는 제외)
 ENV VENV_PATH=/opt/venv
