@@ -86,7 +86,7 @@ class ModelServerManager:
         MODEL_SERVER_HOST = os.environ.get("MODEL_SERVER_HOST", "localhost")
 
         if MODEL_SERVER_HOST == "localhost":
-            return f"ws://localhost:{port}/ws"
+            return f"ws://0.0.0.0:{port}/ws"
         else:
             return f"wss://{MODEL_SERVER_HOST}/ws/{port}/ws"
     
@@ -116,7 +116,7 @@ class ModelServerManager:
         """실행 중인 모델 서버의 URL 반환"""
         if model_id in self.running_servers:
             port = self.running_servers[model_id]
-            return f"ws://localhost:{port}/ws"
+            return f"ws://0.0.0.0:{port}/ws"
         return None
     
     def _handle_logs_thread(self, model_id: str, process: subprocess.Popen):
