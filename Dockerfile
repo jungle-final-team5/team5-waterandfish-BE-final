@@ -17,7 +17,7 @@ ENV POETRY_VERSION=1.8.2
 RUN pip install --no-cache-dir "poetry==$POETRY_VERSION"
 
 COPY pyproject.toml poetry.lock* ./
-RUN poetry export --without-hashes --only main -f requirements.txt -o requirements.txt
+RUN poetry export --without-hashes --only main --extras "linux" -f requirements.txt -o requirements.txt
 
 # --- 2. venv + wheel 캐싱 ---
 ENV VENV_PATH=/opt/venv
