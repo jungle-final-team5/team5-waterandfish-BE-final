@@ -101,11 +101,19 @@ async def get_random_sign(
     # word 필드가 string이 아닐 경우 string으로 변환
     if "word" in random_lesson and not isinstance(random_lesson["word"], str):
         random_lesson["word"] = str(random_lesson["word"])
-    
+
+    # 검색 API와 통일: id, word, description, videoUrl, score(null)만 추출
+    lesson_result = {
+        "id": random_lesson["id"],
+        "word": random_lesson["word"],
+        "description": random_lesson.get("description", ""),
+        "videoUrl": random_lesson.get("videoUrl", ""),
+        "score": None
+    }
     return {
         "success": True,
         "data": {
-            "lesson": random_lesson,
+            "lessons": [lesson_result],
             "recommendation_type": "random",
             "reason": "오늘의 랜덤 수어 추천"
         },
@@ -210,11 +218,19 @@ async def get_daily_sign(
     # word 필드가 string이 아닐 경우 string으로 변환
     if "word" in random_lesson and not isinstance(random_lesson["word"], str):
         random_lesson["word"] = str(random_lesson["word"])
-    
+
+    # 검색 API와 통일: id, word, description, videoUrl, score(null)만 추출
+    lesson_result = {
+        "id": random_lesson["id"],
+        "word": random_lesson["word"],
+        "description": random_lesson.get("description", ""),
+        "videoUrl": random_lesson.get("videoUrl", ""),
+        "score": None
+    }
     return {
         "success": True,
         "data": {
-            "lesson": random_lesson,
+            "lessons": [lesson_result],
             "recommendation_type": "daily",
             "date": today.isoformat(),
             "reason": f"{today.strftime('%Y년 %m월 %d일')} 오늘의 수어"
@@ -352,11 +368,22 @@ async def get_popular_signs(
     for lesson in lessons:
         if "word" in lesson and not isinstance(lesson["word"], str):
             lesson["word"] = str(lesson["word"])
-    
+
+    # 검색 API와 통일: id, word, description, videoUrl, score(null)만 추출
+    lesson_results = [
+        {
+            "id": lesson["id"],
+            "word": lesson["word"],
+            "description": lesson.get("description", ""),
+            "videoUrl": lesson.get("videoUrl", ""),
+            "score": None
+        }
+        for lesson in lessons
+    ]
     return {
         "success": True,
         "data": {
-            "lessons": lessons,
+            "lessons": lesson_results,
             "recommendation_type": "popular",
             "reason": "다른 사용자들이 많이 완료한 수어들"
         },
