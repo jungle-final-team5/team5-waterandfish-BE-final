@@ -49,6 +49,7 @@ class ModelServerManager:
                 "--port", str(port),
                 "--env", model_data_url,
                 "--log-level", "INFO",
+                "--host", "0.0.0.0", #외부에서 접근 가능하게 바인딩 해야함
                 # "--debug-video",
                 "--accuracy-mode",
                 # "--enable-profiling",
@@ -82,8 +83,8 @@ class ModelServerManager:
             await asyncio.sleep(2)
         else:
             port = self.running_servers[model_id]
-        
-        return f"ws://localhost:{port}/ws"
+        MODEL_SERVER_HOST = os.environ.get("MODEL_SERVER_HOST", "localhost")
+        return f"wss://{MODEL_SERVER_HOST}:{port}/ws"
     
     def stop_model_server(self, model_id: str) -> bool:
         """모델 서버를 중지"""
