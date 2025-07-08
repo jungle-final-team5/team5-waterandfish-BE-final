@@ -84,7 +84,7 @@ class ModelServerManager:
         else:
             port = self.running_servers[model_id]
         MODEL_SERVER_HOST = os.environ.get("MODEL_SERVER_HOST", "localhost")
-        return f"wss://{MODEL_SERVER_HOST}:{port}/ws"
+        return f"wss://{MODEL_SERVER_HOST}/ws/{port}/ws"
     
     def stop_model_server(self, model_id: str) -> bool:
         """모델 서버를 중지"""
