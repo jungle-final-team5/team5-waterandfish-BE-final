@@ -70,11 +70,23 @@ async def semantic_search(
     # 모든 hits에 대해 ObjectId를 str로 변환 (lesson_id 외 다른 필드도 포함)
     hits = [convert_objectid_to_str(hit) for hit in hits]
 
-    if not hits:
+    # 추천과 동일한 필드명으로 변환
+    lessons = [
+        {
+            "id": hit.get("lesson_id", hit.get("id")),
+            "word": hit.get("sign_text", ""),
+            "description": hit.get("description", ""),
+            "videoUrl": hit.get("videoUrl", ""),
+            "score": hit.get("score", None)
+        }
+        for hit in hits
+    ]
+
+    if not lessons:
         raise HTTPException(status_code=404, detail="No results")
 
     return {
         "success": True,
-        "data": hits,
+        "data": {"lessons": lessons},
         "message": "검색 결과"
     }
