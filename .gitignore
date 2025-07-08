@@ -41,3 +41,4 @@ htmlcov/
 
 venv/
 .python-version
+poetry.lock
