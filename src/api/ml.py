@@ -40,7 +40,8 @@ async def deploy_chapter_model(
     
     try:
         # 모델 서버 배포
-        ws_urls = await deploy_model(chapter_obj_id, db, use_webrtc)
+        # ws_mapper: model_url -> ws_url
+        ws_urls, lesson_mapper = await deploy_model(chapter_obj_id, db, use_webrtc)
         print('ws_urls', ws_urls)
         if not ws_urls:
             return JSONResponse(
@@ -57,7 +58,7 @@ async def deploy_chapter_model(
             status_code=status.HTTP_200_OK,
             content={
                 "success": True,
-                "data": {"ws_urls": ws_urls, "server_type": server_type},
+                "data": {"ws_urls": ws_urls, "server_type": server_type, "lesson_mapper": lesson_mapper},
                 "message": f"{server_type} 모델 서버 배포 완료: {len(ws_urls)}개"
             }
         )
