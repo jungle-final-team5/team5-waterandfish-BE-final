@@ -235,9 +235,9 @@ class SignClassifierWebSocketServer:
             logger.error(f"❌ 모델 정보 파일 로드 실패: {e}")
             return None
     
-    def get_client_id(self, websocket):
+    def get_client_id(self, connection):
         """클라이언트 ID 생성"""
-        return f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
+        return f"{connection.remote_address[0]}:{connection.remote_address[1]}"
     
     def initialize_client(self, client_id):
         """클라이언트 초기화"""
@@ -700,16 +700,16 @@ class SignClassifierWebSocketServer:
         finally:
             self.client_states[client_id]["is_processing"] = False
     
-    async def handle_client(self, websocket, path):
+    async def handle_client(self, connection):
         """클라이언트 연결 처리"""
-        client_id = self.get_client_id(websocket)
-        self.clients.add(websocket)
+        client_id = self.get_client_id(connection)
+        self.clients.add(connection)
         self.initialize_client(client_id)
         
         logger.info(f"🟢 client connected: {client_id}")
         
         try:
-            async for message in websocket:
+            async for message in connection:
                 try:
                     # 바이너리 데이터인지 확인
                     if isinstance(message, bytes):
@@ -726,7 +726,7 @@ class SignClassifierWebSocketServer:
                                     "data": result,
                                     "timestamp": asyncio.get_event_loop().time()
                                 }
-                                await websocket.send(json.dumps(response))
+                                await connection.send(json.dumps(response))
                         
                         # 메모리 최적화: 프레임 명시적 해제
                         del frame
@@ -750,14 +750,14 @@ class SignClassifierWebSocketServer:
                                         "data": result,
                                         "timestamp": asyncio.get_event_loop().time()
                                     }
-                                    await websocket.send(json.dumps(response))
+                                    await connection.send(json.dumps(response))
                             
                             # 메모리 최적화: 변수 명시적 해제
                             del chunk_data, frame
                         
                         elif data.get("type") == "ping":
                             # 핑 응답
-                            await websocket.send(json.dumps({"type": "pong"}))
+                            await connection.send(json.dumps({"type": "pong"}))
                         
                 except json.JSONDecodeError:
                     logger.warning(f"잘못된 JSON 메시지: {client_id}")
@@ -765,7 +765,7 @@ class SignClassifierWebSocketServer:
                     logger.error(f"메시지 처리 실패 [{client_id}]: {e}")
                     # 에러 발생 시 클라이언트에게 알림
                     try:
-                        await websocket.send(json.dumps({
+                        await connection.send(json.dumps({
                             "type": "error",
                             "message": "프레임 처리 중 오류가 발생했습니다."
                         }))
@@ -777,7 +777,7 @@ class SignClassifierWebSocketServer:
         except Exception as e:
             logger.error(f"클라이언트 처리 중 오류 [{client_id}]: {e}")
         finally:
-            self.clients.remove(websocket)
+            self.clients.remove(connection)
             self.cleanup_client(client_id)
     
     async def run_server(self):
