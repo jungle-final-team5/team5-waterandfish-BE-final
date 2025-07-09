@@ -83,8 +83,8 @@ class ModelServerManager:
             await asyncio.sleep(2)
         else:
             port = self.running_servers[model_id]
-        MODEL_SERVER_HOST = os.environ.get("MODEL_SERVER_HOST", "localhost")
-
+        MODEL_SERVER_HOST = settings.MODEL_SERVER_HOST
+        
         if MODEL_SERVER_HOST == "localhost":
             return f"ws://0.0.0.0:{port}/ws"
         else:
