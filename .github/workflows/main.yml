@@ -41,7 +41,10 @@ jobs:
           poetry install --only main
           
           # 서비스 재시작
-          sudo systemctl restart waterandfish-backend.service
-          sudo systemctl restart waterandfish-websocket-9001.service
-          sudo systemctl restart waterandfish-websocket-9002.service
+      # 서비스 재시작
+      sudo systemctl restart waterandfish-backend.service
+
+      for port in {9001..9099}; do
+        sudo systemctl restart waterandfish-websocket-${port}.service || true
+      done
         EOF
