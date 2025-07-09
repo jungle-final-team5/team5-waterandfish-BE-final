@@ -28,10 +28,18 @@ jobs:
           set -e
           cd /home/ubuntu/team5-waterandfish-BE
           git pull origin main
-          python3 -m venv venv
-          source venv/bin/activate
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          # systemd로 서비스 재시작
-          sudo systemctl waterandfish-backend.service
+          
+          # Poetry가 설치되어 있는지 확인
+          if ! command -v poetry &> /dev/null; then
+            curl -sSL https://install.python-poetry.org | python3 -
+            export PATH="$HOME/.local/bin:$PATH"
+          fi
+          
+          # Poetry로 의존성 설치 (Linux extras 포함)
+          poetry install --extras linux --no-dev
+          
+          # 서비스 재시작
+          sudo systemctl restart waterandfish-backend.service
+          sudo systemctl restart waterandfish-websocket-9001.service
+          sudo systemctl restart waterandfish-websocket-9002.service
         EOF
