@@ -37,8 +37,8 @@ jobs:
             export PATH="$HOME/.local/bin:$PATH"
           fi
           
-          # Poetry로 의존성 설치 (Linux extras 포함)
-          poetry install --extras linux --no-dev
+          # Poetry로 의존성 설치 (Linux extras 옵션 제거)
+          poetry install --only main
           
           # 서비스 재시작
           sudo systemctl restart waterandfish-backend.service
