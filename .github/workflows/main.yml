@@ -40,10 +40,4 @@ jobs:
             # Poetry로 의존성 설치 (Linux extras 옵션 제거)
             poetry install --only main
 
-            # 서비스 재시작
-            sudo systemctl restart waterandfish-backend.service
-
-            for port in {9001..9099}; do
-              sudo systemctl restart waterandfish-websocket-${port}.service || true
-            done
           EOF
