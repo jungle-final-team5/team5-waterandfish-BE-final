@@ -940,7 +940,7 @@ def main():
     
     # 서버 생성 및 실행
     # localhost should be changed to the server's IP address when deploying to a server
-    server = SignClassifierWebSocketServer(model_info_url_processed, host="localhost", port=port, debug_video=debug_video, frame_skip=frame_skip, prediction_interval=prediction_interval, max_frame_width=max_frame_width, enable_profiling=enable_profiling, aggressive_mode=aggressive_mode, accuracy_mode=accuracy_mode)
+    server = SignClassifierWebSocketServer(model_info_url_processed, host="0.0.0.0", port=port, debug_video=debug_video, frame_skip=frame_skip, prediction_interval=prediction_interval, max_frame_width=max_frame_width, enable_profiling=enable_profiling, aggressive_mode=aggressive_mode, accuracy_mode=accuracy_mode)
     
     # 디버그 모드 활성화 시 알림
     if debug_video:
