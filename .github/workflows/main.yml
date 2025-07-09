@@ -11,40 +11,39 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Setup SSH key
-      run: |
-        mkdir -p ~/.ssh
-        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
 
-    - name: Add EC2 host to known_hosts
-      run: |
-        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+      - name: Add EC2 host to known_hosts
+        run: |
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-    - name: Deploy to EC2
-      run: |
-        ssh ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }} << 'EOF'
-          set -e
-          cd /home/ubuntu/team5-waterandfish-BE
-          git pull origin main
-          
-          # Poetry가 설치되어 있는지 확인
-          if ! command -v poetry &> /dev/null; then
-            curl -sSL https://install.python-poetry.org | python3 -
-            export PATH="$HOME/.local/bin:$PATH"
-          fi
-          
-          # Poetry로 의존성 설치 (Linux extras 옵션 제거)
-          poetry install --only main
-          
-          # 서비스 재시작
-      # 서비스 재시작
-        sudo systemctl restart waterandfish-backend.service
+      - name: Deploy to EC2
+        run: |
+          ssh ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }} << 'EOF'
+            set -e
+            cd /home/ubuntu/team5-waterandfish-BE
+            git pull origin main
 
-        for port in {9001..9099}; do
-          sudo systemctl restart waterandfish-websocket-${port}.service || true
-        done
-      EOF
+            # Poetry가 설치되어 있는지 확인
+            if ! command -v poetry &> /dev/null; then
+              curl -sSL https://install.python-poetry.org | python3 -
+              export PATH="$HOME/.local/bin:$PATH"
+            fi
+
+            # Poetry로 의존성 설치 (Linux extras 옵션 제거)
+            poetry install --only main
+
+            # 서비스 재시작
+            sudo systemctl restart waterandfish-backend.service
+
+            for port in {9001..9099}; do
+              sudo systemctl restart waterandfish-websocket-${port}.service || true
+            done
+          EOF
