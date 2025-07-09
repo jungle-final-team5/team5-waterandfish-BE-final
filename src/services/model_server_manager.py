@@ -87,7 +87,7 @@ class ModelServerManager:
         
         if MODEL_SERVER_HOST == "localhost":
             return f"ws://0.0.0.0:{port}/ws"
-        elsez:
+        else:
             return f"wss://{MODEL_SERVER_HOST}/ws/{port}/ws"
     
     def stop_model_server(self, model_id: str) -> bool:
