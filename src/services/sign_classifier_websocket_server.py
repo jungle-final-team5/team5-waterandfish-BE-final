@@ -1,6 +1,8 @@
-import cv2
+# OpenCV 제거 - 이미지 처리는 프론트엔드에서 처리
+# import cv2
 import numpy as np
-import mediapipe as mp
+# MediaPipe 제거 - 프론트엔드에서 처리
+# import mediapipe as mp
 import tensorflow as tf
 import json
 import sys
@@ -9,9 +11,10 @@ import asyncio
 import websockets
 import logging
 from collections import deque
-from PIL import ImageFont, ImageDraw, Image
-import base64
-import io
+# PIL, base64, io 제거 - 이미지 처리 불필요
+# from PIL import ImageFont, ImageDraw, Image
+# import base64
+# import io
 from datetime import datetime
 import argparse
 import time  # 성능 측정용
@@ -27,48 +30,23 @@ from s3_utils import s3_utils
 logger = logging.getLogger(__name__)
 
 class SignClassifierWebSocketServer:
-    def __init__(self, model_info_url, host, port, debug_video=False, frame_skip=3, prediction_interval=10, max_frame_width=640, enable_profiling=False, aggressive_mode=False, accuracy_mode=False):
-        """수어 분류 WebSocket 서버 초기화"""
+    def __init__(self, model_info_url, host, port, debug_mode=False, prediction_interval=5, enable_profiling=False):
+        """수어 분류 WebSocket 서버 초기화 (벡터 데이터 처리용)"""
         self.host = host
         self.port = port
         self.clients = set()  # 연결된 클라이언트들
-        self.debug_video = debug_video  # 비디오 디버그 모드
+        self.debug_mode = debug_mode  # 디버그 모드
         self.enable_profiling = enable_profiling  # 성능 프로파일링 모드
-        self.aggressive_mode = aggressive_mode  # 공격적 최적화 모드
-        self.accuracy_mode = accuracy_mode  # 정확도 우선 모드
         
-        # 성능 최적화 설정
-        self.frame_skip_rate = frame_skip  # N프레임 중 1프레임만 처리
-        self.prediction_interval = prediction_interval  # N프레임마다 예측 실행
-        self.debug_update_interval = 10  # 10프레임마다 디버그 화면 업데이트 (성능 향상)
-        self.max_frame_width = max_frame_width  # 최대 프레임 너비
-        
-        # 모드별 설정 조정
-        if self.accuracy_mode:
-            # 정확도 우선 모드: 더 자주 처리
-            self.frame_skip_rate = 1
-            self.prediction_interval = max(5, prediction_interval - 3)  # 더 자주 예측
-            self.debug_update_interval = 5  # 더 자주 업데이트
-            logger.info(f"🎯 정확도 모드 설정: 프레임스킵={self.frame_skip_rate}, 예측간격={self.prediction_interval}")
-        elif self.aggressive_mode:
-            # 공격적 모드: 더 적게 처리
-            self.frame_skip_rate = frame_skip + 2  # 더 많이 스킵
-            self.prediction_interval = prediction_interval + 5  # 더 적게 예측
-            self.debug_update_interval = 15  # 더 적게 업데이트
-            logger.info(f"🔥 공격적 모드 설정: 프레임스킵={self.frame_skip_rate}, 예측간격={self.prediction_interval}")
-        
-        # 디버그 렌더링 최적화 설정
-        self.debug_frame_width = 480  # 디버그 화면 너비 (더 작게)
-        self.debug_frame_height = 360  # 디버그 화면 높이 (더 작게)
+        # 성능 최적화 설정 (벡터 처리에 최적화)
+        self.prediction_interval = prediction_interval  # N개 벡터마다 예측 실행
         
         # 성능 통계 추적
         self.performance_stats = {
-            'total_frames': 0,
-            'avg_decode_time': 0,
-            'avg_mediapipe_time': 0,
+            'total_vectors': 0,
             'avg_preprocessing_time': 0,
             'avg_prediction_time': 0,
-            'max_frame_time': 0,
+            'max_processing_time': 0,
             'bottleneck_component': 'unknown'
         }
         
@@ -118,7 +96,7 @@ class SignClassifierWebSocketServer:
         logger.info(f"📊 원본 모델 경로: {self.model_info['model_path']}")
         logger.info(f"📊 변환된 모델 경로: {self.MODEL_SAVE_PATH}")
         logger.info(f"⏱️ 시퀀스 길이: {self.MAX_SEQ_LENGTH}")
-        logger.info(f"🚀 성능 설정: 프레임 스킵={self.frame_skip_rate}, 예측 간격={self.prediction_interval}")
+        logger.info(f"🚀 성능 설정: 예측 간격={self.prediction_interval}")
         
         # 모델 파일 존재 확인
         if not os.path.exists(self.MODEL_SAVE_PATH):
@@ -127,41 +105,63 @@ class SignClassifierWebSocketServer:
         
         logger.info(f"✅ 모델 파일 존재 확인: {self.MODEL_SAVE_PATH}")
         
-        # MediaPipe 초기화 (성능 최적화 설정)
-        self.mp_holistic = mp.solutions.holistic
-        
-        # 모드에 따른 설정 조정
-        if self.aggressive_mode:
-            detection_confidence = 0.9  # 매우 높은 임계값 (속도 우선)
-            tracking_confidence = 0.8   # 매우 높은 추적 신뢰도
-            logger.info("🔥 공격적 최적화 모드 활성화 - 속도 우선")
-        elif self.accuracy_mode:
-            detection_confidence = 0.5  # 낮은 임계값 (정확도 우선)
-            tracking_confidence = 0.3   # 낮은 추적 신뢰도 (정확도 우선)
-            logger.info("🎯 정확도 우선 모드 활성화 - 정확도 우선")
-        else:
-            detection_confidence = 0.6  # 균형 설정 (기본값)
-            tracking_confidence = 0.5   # 균형 추적 신뢰도
-            logger.info("⚖️ 균형 최적화 모드 - 정확도와 성능의 균형")
-        
-        self.holistic = self.mp_holistic.Holistic(
-            min_detection_confidence=detection_confidence,
-            min_tracking_confidence=tracking_confidence,
-            model_complexity=0,            # 모델 복잡도 감소 (0: 가장 빠름)
-            smooth_landmarks=False,        # 랜드마크 스무딩 비활성화로 성능 향상
-            enable_segmentation=False,     # 세그멘테이션 비활성화 (성능 향상)
-            refine_face_landmarks=False,   # 얼굴 랜드마크 정제 비활성화
-            static_image_mode=False        # 비디오 모드 최적화
-        )
-        
-        # MediaPipe 드로잉 유틸리티 (디버그용)
-        self.mp_drawing = mp.solutions.drawing_utils
-        self.mp_drawing_styles = mp.solutions.drawing_styles
+        # MediaPipe 관련 초기화 제거 - 프론트엔드에서 처리
+        logger.info("🔄 벡터 처리 모드 - MediaPipe는 프론트엔드에서 처리됩니다")
         
         # 모델 로드
         try:
-            self.model = tf.keras.models.load_model(self.MODEL_SAVE_PATH)
-            logger.info(f"✅ 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+            # Keras 3와 tf-keras 호환성을 위한 모델 로딩
+            model_loaded = False
+            
+            # 방법 1: tf-keras로 시도
+            if not model_loaded:
+                try:
+                    self.model = tf.keras.models.load_model(self.MODEL_SAVE_PATH)
+                    logger.info(f"✅ tf-keras로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+                    model_loaded = True
+                except Exception as tf_error:
+                    logger.info(f"tf-keras 로딩 실패: {tf_error}")
+            
+            # 방법 2: keras로 시도
+            if not model_loaded:
+                try:
+                    import keras
+                    self.model = keras.models.load_model(self.MODEL_SAVE_PATH)
+                    logger.info(f"✅ keras로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+                    model_loaded = True
+                except Exception as keras_error:
+                    logger.info(f"keras 로딩 실패: {keras_error}")
+            
+            # 방법 3: tf-keras with compile=False
+            if not model_loaded:
+                try:
+                    self.model = tf.keras.models.load_model(self.MODEL_SAVE_PATH, compile=False)
+                    logger.info(f"✅ tf-keras (compile=False)로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+                    model_loaded = True
+                except Exception as compile_false_error:
+                    logger.info(f"tf-keras (compile=False) 로딩 실패: {compile_false_error}")
+            
+            # 방법 4: keras with compile=False
+            if not model_loaded:
+                try:
+                    import keras
+                    self.model = keras.models.load_model(self.MODEL_SAVE_PATH, compile=False)
+                    logger.info(f"✅ keras (compile=False)로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+                    model_loaded = True
+                except Exception as keras_compile_false_error:
+                    logger.info(f"keras (compile=False) 로딩 실패: {keras_compile_false_error}")
+            
+            # 방법 5: custom_objects 없이 시도
+            if not model_loaded:
+                try:
+                    self.model = tf.keras.models.load_model(self.MODEL_SAVE_PATH, custom_objects={})
+                    logger.info(f"✅ tf-keras (custom_objects={{}})로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+                    model_loaded = True
+                except Exception as custom_objects_error:
+                    logger.info(f"tf-keras (custom_objects={{}}) 로딩 실패: {custom_objects_error}")
+            
+            if not model_loaded:
+                raise Exception("모든 모델 로딩 방법이 실패했습니다.")
             
             # TensorFlow 성능 최적화 설정
             tf.config.optimizer.set_jit(True)  # XLA JIT 컴파일 활성화
@@ -181,8 +181,8 @@ class SignClassifierWebSocketServer:
         # 분류 상태 (클라이언트별로 관리)
         self.client_states = {}  # {client_id: {prediction, confidence, is_processing}}
         
-        # 프레임 카운터 (클라이언트별)
-        self.client_frame_counters = {}  # {client_id: frame_count}
+        # 벡터 카운터 (클라이언트별)
+        self.client_vector_counters = {}  # {client_id: vector_count}
         
         # 분류 통계
         self.classification_count = 0
@@ -252,7 +252,7 @@ class SignClassifierWebSocketServer:
                 "last_prediction": None,
                 "same_count": 0
             }
-            self.client_frame_counters[client_id] = 0
+            self.client_vector_counters[client_id] = 0
             logger.info(f"🆕 클라이언트 초기화: {client_id}")
     
     def cleanup_client(self, client_id):
@@ -263,53 +263,43 @@ class SignClassifierWebSocketServer:
             del self.client_states[client_id]
         if client_id in self.client_sequence_managers:
             del self.client_sequence_managers[client_id]
-        if client_id in self.client_frame_counters:
-            del self.client_frame_counters[client_id]
+        if client_id in self.client_vector_counters:
+            del self.client_vector_counters[client_id]
         
-        # 디버그 모드인 경우 해당 클라이언트의 윈도우 정리
-        if self.debug_video:
-            cv2.destroyWindow(f"Debug - {client_id}")
+        # 벡터 처리 모드에서는 별도 정리 작업 없음
         
         logger.info(f"🧹 클라이언트 정리: {client_id}")
     
-    def bytes_to_frame(self, image_bytes):
-        """바이트 데이터를 OpenCV 프레임으로 변환"""
-        start_time = time.time()
-        
+    def validate_landmarks_data(self, landmarks_data):
+        """랜드마크 데이터 유효성 검사"""
         try:
-            # 바이트를 numpy 배열로 변환
-            decode_start = time.time()
-            nparr = np.frombuffer(image_bytes, np.uint8)
+            # 필수 키 확인
+            required_keys = ["pose", "left_hand", "right_hand"]
+            for key in required_keys:
+                if key not in landmarks_data:
+                    logger.warning(f"누락된 랜드마크 키: {key}")
+                    return False
             
-            # 이미지 디코딩 (JPEG, PNG 등 지원)
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            decode_time = time.time() - decode_start
+            # 데이터 형식 확인
+            for key in required_keys:
+                data = landmarks_data[key]
+                if data is not None:
+                    # 리스트 형태인지 확인
+                    if not isinstance(data, list):
+                        logger.warning(f"잘못된 데이터 형식 - {key}: 리스트가 아님")
+                        return False
+                    
+                    # 각 랜드마크가 3차원 좌표인지 확인
+                    for i, landmark in enumerate(data):
+                        if not isinstance(landmark, list) or len(landmark) != 3:
+                            logger.warning(f"잘못된 랜드마크 형식 - {key}[{i}]: 3차원 좌표가 아님")
+                            return False
             
-            if frame is None:
-                logger.warning("이미지 디코딩 실패 - 지원되지 않는 포맷이거나 손상된 데이터")
-                return None
-            
-            # 프레임 크기 확인
-            if frame.size == 0:
-                logger.warning("빈 프레임")
-                return None
-            
-            # 검은색 프레임 감지
-            if frame.max() == 0:
-                logger.warning("검은색 프레임 감지")
-                return None
-            
-            total_time = time.time() - start_time
-            
-            # 성능 로깅 (디버그 모드에서만)
-            if self.enable_profiling and total_time > 0.01:  # 10ms 이상 걸리는 경우만 로그
-                logger.debug(f"🔍 Frame decode: {decode_time*1000:.1f}ms, Total: {total_time*1000:.1f}ms")
-            
-            return frame
+            return True
             
         except Exception as e:
-            logger.error(f"프레임 변환 실패: {e}")
-            return None
+            logger.error(f"랜드마크 데이터 검증 실패: {e}")
+            return False
     
     def normalize_sequence_length(self, sequence, target_length=30):
         """시퀀스 길이를 정규화"""
@@ -368,13 +358,26 @@ class SignClassifierWebSocketServer:
             
             # 어깨 중심점 계산
             shoulder_start = time.time()
-            pose_landmarks = frame["pose"].landmark
-            left_shoulder = pose_landmarks[11]
-            right_shoulder = pose_landmarks[12]
-            shoulder_center_x = (left_shoulder.x + right_shoulder.x) / 2
-            shoulder_center_y = (left_shoulder.y + right_shoulder.y) / 2
-            shoulder_center_z = (left_shoulder.z + right_shoulder.z) / 2
-            shoulder_width = abs(right_shoulder.x - left_shoulder.x)
+            pose_landmarks = frame["pose"]
+            
+            # MediaPipe 객체인지 리스트인지 확인
+            if hasattr(pose_landmarks, 'landmark'):
+                # MediaPipe 객체인 경우 (기존 방식)
+                left_shoulder = pose_landmarks.landmark[11]
+                right_shoulder = pose_landmarks.landmark[12]
+                shoulder_center_x = (left_shoulder.x + right_shoulder.x) / 2
+                shoulder_center_y = (left_shoulder.y + right_shoulder.y) / 2
+                shoulder_center_z = (left_shoulder.z + right_shoulder.z) / 2
+                shoulder_width = abs(right_shoulder.x - left_shoulder.x)
+            else:
+                # 리스트인 경우 (프론트엔드에서 전송된 데이터)
+                left_shoulder = pose_landmarks[11]  # [x, y, z]
+                right_shoulder = pose_landmarks[12]  # [x, y, z]
+                shoulder_center_x = (left_shoulder[0] + right_shoulder[0]) / 2
+                shoulder_center_y = (left_shoulder[1] + right_shoulder[1]) / 2
+                shoulder_center_z = (left_shoulder[2] + right_shoulder[2]) / 2
+                shoulder_width = abs(right_shoulder[0] - left_shoulder[0])
+            
             if shoulder_width == 0:
                 shoulder_width = 1.0
             shoulder_calc_time += time.time() - shoulder_start
@@ -385,11 +388,22 @@ class SignClassifierWebSocketServer:
             if frame["pose"]:
                 pose_start = time.time()
                 relative_pose = []
-                for landmark in pose_landmarks:
-                    rel_x = (landmark.x - shoulder_center_x) / shoulder_width
-                    rel_y = (landmark.y - shoulder_center_y) / shoulder_width
-                    rel_z = (landmark.z - shoulder_center_z) / shoulder_width
-                    relative_pose.append([rel_x, rel_y, rel_z])
+                
+                if hasattr(pose_landmarks, 'landmark'):
+                    # MediaPipe 객체인 경우
+                    for landmark in pose_landmarks.landmark:
+                        rel_x = (landmark.x - shoulder_center_x) / shoulder_width
+                        rel_y = (landmark.y - shoulder_center_y) / shoulder_width
+                        rel_z = (landmark.z - shoulder_center_z) / shoulder_width
+                        relative_pose.append([rel_x, rel_y, rel_z])
+                else:
+                    # 리스트인 경우
+                    for landmark in pose_landmarks:
+                        rel_x = (landmark[0] - shoulder_center_x) / shoulder_width
+                        rel_y = (landmark[1] - shoulder_center_y) / shoulder_width
+                        rel_z = (landmark[2] - shoulder_center_z) / shoulder_width
+                        relative_pose.append([rel_x, rel_y, rel_z])
+                
                 new_frame["pose"] = relative_pose
                 pose_calc_time += time.time() - pose_start
             
@@ -398,11 +412,23 @@ class SignClassifierWebSocketServer:
             for hand_key in ["left_hand", "right_hand"]:
                 if frame[hand_key]:
                     relative_hand = []
-                    for landmark in frame[hand_key].landmark:
-                        rel_x = (landmark.x - shoulder_center_x) / shoulder_width
-                        rel_y = (landmark.y - shoulder_center_y) / shoulder_width
-                        rel_z = (landmark.z - shoulder_center_z) / shoulder_width
-                        relative_hand.append([rel_x, rel_y, rel_z])
+                    hand_landmarks = frame[hand_key]
+                    
+                    if hasattr(hand_landmarks, 'landmark'):
+                        # MediaPipe 객체인 경우
+                        for landmark in hand_landmarks.landmark:
+                            rel_x = (landmark.x - shoulder_center_x) / shoulder_width
+                            rel_y = (landmark.y - shoulder_center_y) / shoulder_width
+                            rel_z = (landmark.z - shoulder_center_z) / shoulder_width
+                            relative_hand.append([rel_x, rel_y, rel_z])
+                    else:
+                        # 리스트인 경우
+                        for landmark in hand_landmarks:
+                            rel_x = (landmark[0] - shoulder_center_x) / shoulder_width
+                            rel_y = (landmark[1] - shoulder_center_y) / shoulder_width
+                            rel_z = (landmark[2] - shoulder_center_z) / shoulder_width
+                            relative_hand.append([rel_x, rel_y, rel_z])
+                    
                     new_frame[hand_key] = relative_hand
                 else:
                     new_frame[hand_key] = None
@@ -442,8 +468,10 @@ class SignClassifierWebSocketServer:
             for key in ["pose", "left_hand", "right_hand"]:
                 if frame[key]:
                     if isinstance(frame[key], list):
+                        # 이미 리스트 형태인 경우 (프론트엔드에서 전송된 데이터)
                         combined.extend(frame[key])
                     else:
+                        # MediaPipe 객체인 경우
                         combined.extend([[l.x, l.y, l.z] for l in frame[key].landmark])
                 else:
                     num_points = {"pose": 33, "left_hand": 21, "right_hand": 21}[key]
@@ -504,17 +532,13 @@ class SignClassifierWebSocketServer:
         # 분류 횟수 증가
         self.classification_count += 1
     
-    def process_frame(self, frame, client_id):
-        """프레임 처리 및 분류 (성능 최적화 + 프로파일링)"""
-        frame_start_time = time.time()
+    def process_landmarks(self, landmarks_data, client_id):
+        """랜드마크 벡터 처리 및 분류 (성능 최적화 + 프로파일링)"""
+        process_start_time = time.time()
         
-        # 프레임 카운터 증가
-        self.client_frame_counters[client_id] += 1
-        frame_count = self.client_frame_counters[client_id]
-        
-        # 프레임 스킵 로직 (매 N프레임 중 1프레임만 처리)
-        if frame_count % self.frame_skip_rate != 0:
-            return None
+        # 벡터 카운터 증가
+        self.client_vector_counters[client_id] += 1
+        vector_count = self.client_vector_counters[client_id]
         
         # 이미 처리 중인 경우 스킵
         if self.client_states[client_id]["is_processing"]:
@@ -523,92 +547,42 @@ class SignClassifierWebSocketServer:
         self.client_states[client_id]["is_processing"] = True
         
         # 성능 측정 변수들
-        resize_time = 0
-        debug_time = 0
-        mediapipe_time = 0
         preprocessing_time = 0
         prediction_time = 0
         
         try:
-            # 1. 프레임 크기 사전 제한 (큰 프레임 처리 시간 단축)
-            resize_start = time.time()
-            height, width = frame.shape[:2]
-            if width > self.max_frame_width:  # 최대 프레임 너비보다 크면 크기 조정
-                scale = self.max_frame_width / width
-                new_width = int(width * scale)
-                new_height = int(height * scale)
-                frame = cv2.resize(frame, (new_width, new_height))
-                height, width = new_height, new_width
-            resize_time = time.time() - resize_start
+            # 1. 랜드마크 데이터 유효성 검사
+            if not self.validate_landmarks_data(landmarks_data):
+                logger.warning(f"[{client_id}] 잘못된 랜드마크 데이터")
+                return None
             
-            # 2. 디버그 모드: 업데이트 빈도 제한 (최적화)
-            debug_start = time.time()
-            if self.debug_video and frame_count % self.debug_update_interval == 0:
-                # 더 작은 디버그 프레임 생성 (성능 향상)
-                debug_frame = cv2.resize(frame, (self.debug_frame_width, self.debug_frame_height))
-                
-                # 간단한 정보만 표시 (성능 향상)
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                font_scale = 0.5  # 더 작은 폰트
-                thickness = 1     # 더 얇은 선
-                
-                # 기본 정보
-                cv2.putText(debug_frame, f"ID: {client_id}", (5, 20), font, font_scale, (0, 255, 0), thickness)
-                cv2.putText(debug_frame, f"Frames: {len(self.client_sequences[client_id])}", (5, 40), font, font_scale, (0, 255, 0), thickness)
-                
-                # 현재 예측 결과 (있는 경우만)
-                if client_id in self.client_states and self.client_states[client_id]["prediction"] != "None":
-                    pred_text = f"{self.client_states[client_id]['prediction']}"
-                    conf_text = f"{self.client_states[client_id]['confidence']:.2f}"
-                    cv2.putText(debug_frame, pred_text, (5, 60), font, font_scale, (0, 0, 255), thickness)
-                    cv2.putText(debug_frame, conf_text, (5, 80), font, font_scale, (0, 0, 255), thickness)
-                
-                # 프레임 표시
-                cv2.imshow(f"Debug - {client_id}", debug_frame)
-                
-                # ESC 키로 종료 (비블로킹)
-                key = cv2.waitKey(1) & 0xFF
-                if key == 27:  # ESC key
-                    logger.info("ESC 키가 눌렸습니다. 디버그 모드를 종료합니다.")
-                    cv2.destroyAllWindows()
-                    self.debug_video = False
-            debug_time = time.time() - debug_start
-            
-            # 3. MediaPipe 처리
-            mediapipe_start = time.time()
-            # BGR을 RGB로 변환
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            # MediaPipe로 랜드마크 추출
-            results = self.holistic.process(frame_rgb)
-            mediapipe_time = time.time() - mediapipe_start
-            
-            # 4. 랜드마크 데이터 수집
+            # 2. 랜드마크 데이터 수집
             landmarks_list = []
             landmarks_list.append({
-                "pose": results.pose_landmarks,
-                "left_hand": results.left_hand_landmarks,
-                "right_hand": results.right_hand_landmarks
+                "pose": landmarks_data["pose"],
+                "left_hand": landmarks_data["left_hand"],
+                "right_hand": landmarks_data["right_hand"]
             })
             
             # 시퀀스에 추가
             self.client_sequences[client_id].extend(landmarks_list)
             
-            # 5. 예측 실행 빈도 제한 (성능 향상)
+            # 3. 예측 실행 빈도 제한 (성능 향상)
             should_predict = (
                 len(self.client_sequences[client_id]) >= self.MAX_SEQ_LENGTH and
-                frame_count % self.prediction_interval == 0
+                vector_count % self.prediction_interval == 0
             )
             
             # should_predict = False
             
             result = None
             if should_predict:
-                # 랜드마크 전처리
+                # 4. 랜드마크 전처리 (예측할 때만)
                 preprocessing_start = time.time()
                 sequence = self.improved_preprocess_landmarks(list(self.client_sequences[client_id]))
                 preprocessing_time = time.time() - preprocessing_start
                 
-                # 모델 예측
+                # 5. 모델 예측
                 prediction_start = time.time()
                 pred_probs = self.model.predict(sequence.reshape(1, *sequence.shape), verbose=0)
                 pred_idx = np.argmax(pred_probs[0])
@@ -631,66 +605,44 @@ class SignClassifierWebSocketServer:
                 self.log_classification_result(result, client_id)
             
             # 성능 프로파일링 출력
-            total_time = time.time() - frame_start_time
+            total_time = time.time() - process_start_time
             
             # 성능 통계 업데이트
-            self.performance_stats['total_frames'] += 1
-            if mediapipe_time > 0:
-                self.performance_stats['avg_mediapipe_time'] = (
-                    (self.performance_stats['avg_mediapipe_time'] * (self.performance_stats['total_frames'] - 1) + mediapipe_time) /
-                    self.performance_stats['total_frames']
-                )
+            self.performance_stats['total_vectors'] += 1
             if preprocessing_time > 0:
                 self.performance_stats['avg_preprocessing_time'] = (
-                    (self.performance_stats['avg_preprocessing_time'] * (self.performance_stats['total_frames'] - 1) + preprocessing_time) /
-                    self.performance_stats['total_frames']
+                    (self.performance_stats['avg_preprocessing_time'] * (self.performance_stats['total_vectors'] - 1) + preprocessing_time) /
+                    self.performance_stats['total_vectors']
                 )
             if prediction_time > 0:
                 self.performance_stats['avg_prediction_time'] = (
-                    (self.performance_stats['avg_prediction_time'] * (self.performance_stats['total_frames'] - 1) + prediction_time) /
-                    self.performance_stats['total_frames']
+                    (self.performance_stats['avg_prediction_time'] * (self.performance_stats['total_vectors'] - 1) + prediction_time) /
+                    self.performance_stats['total_vectors']
                 )
-            if total_time > self.performance_stats['max_frame_time']:
-                self.performance_stats['max_frame_time'] = total_time
+            if total_time > self.performance_stats['max_processing_time']:
+                self.performance_stats['max_processing_time'] = total_time
                 # 병목 컴포넌트 식별
                 times = {
-                    'mediapipe': mediapipe_time,
                     'preprocessing': preprocessing_time,
                     'prediction': prediction_time,
-                    'debug': debug_time,
-                    'resize': resize_time
                 }
                 self.performance_stats['bottleneck_component'] = max(times, key=times.get)
             
             # 성능 프로파일링 출력 (프로파일링 모드가 활성화된 경우)
             if self.enable_profiling and total_time > 0.05:  # 50ms 이상 걸리는 경우만 로그
-                if self.aggressive_mode:
-                    # 공격적 모드에서는 간단한 프로파일링
-                    logger.info(f"⚡ [{client_id}] 프레임 #{self.performance_stats['total_frames']}: {total_time*1000:.1f}ms (MP:{mediapipe_time*1000:.1f}ms)")
-                else:
-                    # 기본 프로파일링
-                    logger.info(f"⚡ [{client_id}] 성능 프로파일 (프레임 #{self.performance_stats['total_frames']}):")
-                    logger.info(f"   전체: {total_time*1000:.1f}ms")
-                    logger.info(f"   리사이즈: {resize_time*1000:.1f}ms")
-                    logger.info(f"   디버그: {debug_time*1000:.1f}ms")
-                    logger.info(f"   MediaPipe: {mediapipe_time*1000:.1f}ms")
-                    if should_predict:
-                        logger.info(f"   전처리: {preprocessing_time*1000:.1f}ms")
-                        logger.info(f"   예측: {prediction_time*1000:.1f}ms")
-                    logger.info(f"   🔥 병목: {self.performance_stats['bottleneck_component']}")
+                logger.info(f"⚡ [{client_id}] 프레임 #{self.performance_stats['total_vectors']}: {total_time*1000:.1f}ms (전처리:{preprocessing_time*1000:.1f}ms, 예측:{prediction_time*1000:.1f}ms)")
                 
                 # 100프레임마다 성능 요약 출력
-                if self.performance_stats['total_frames'] % 100 == 0:
-                    logger.info(f"📊 성능 요약 (100프레임 평균):")
-                    logger.info(f"   평균 MediaPipe: {self.performance_stats['avg_mediapipe_time']*1000:.1f}ms")
+                if self.performance_stats['total_vectors'] % 100 == 0:
+                    logger.info(f"📊 성능 요약 (100벡터 평균):")
                     logger.info(f"   평균 전처리: {self.performance_stats['avg_preprocessing_time']*1000:.1f}ms")
                     logger.info(f"   평균 예측: {self.performance_stats['avg_prediction_time']*1000:.1f}ms")
-                    logger.info(f"   최대 프레임 시간: {self.performance_stats['max_frame_time']*1000:.1f}ms")
+                    logger.info(f"   최대 프레임 시간: {self.performance_stats['max_processing_time']*1000:.1f}ms")
                     logger.info(f"   주요 병목: {self.performance_stats['bottleneck_component']}")
             
             # 디버그 모드에서는 간단한 성능 정보만 출력
-            elif self.debug_video and total_time > 0.1:  # 100ms 이상 걸리는 경우만 로그
-                logger.info(f"⚡ [{client_id}] 느린 프레임 감지: {total_time*1000:.1f}ms")
+            elif self.debug_mode and total_time > 0.1:  # 100ms 이상 걸리는 경우만 로그
+                logger.info(f"⚡ [{client_id}] 느린 벡터 감지: {total_time*1000:.1f}ms")
             
             return result
                 
@@ -700,24 +652,44 @@ class SignClassifierWebSocketServer:
         finally:
             self.client_states[client_id]["is_processing"] = False
     
-    async def handle_client(self, connection):
+    async def handle_client(self, websocket):
         """클라이언트 연결 처리"""
-        client_id = self.get_client_id(connection)
-        self.clients.add(connection)
+        client_id = self.get_client_id(websocket)
+        self.clients.add(websocket)
         self.initialize_client(client_id)
         
-        logger.info(f"🟢 client connected: {client_id}")
+        logger.info(f"🟢 Vector processing client connected: {client_id}")
+        logger.info(f"📋 Expected message format: JSON with 'type': 'landmarks' and 'data': [landmark_vectors]")
         
         try:
-            async for message in connection:
+            async for message in websocket:
                 try:
-                    # 바이너리 데이터인지 확인
+                    # 메시지 타입 확인 (텍스트 또는 바이너리)
                     if isinstance(message, bytes):
-                        # 바이너리 데이터를 직접 처리
-                        frame = self.bytes_to_frame(message)
+                        # 바이너리 메시지 처리
+                        logger.warning(f"[{client_id}] 바이너리 메시지 수신됨 (길이: {len(message)} bytes) - 벡터 처리 모드에서는 지원하지 않음")
+                        # 클라이언트에게 바이너리 메시지가 지원되지 않음을 알림
+                        try:
+                            await websocket.send(json.dumps({
+                                "type": "error",
+                                "message": "바이너리 메시지는 지원되지 않습니다. JSON 형식의 랜드마크 데이터를 전송해주세요."
+                            }))
+                        except:
+                            pass
+                        continue
+                    
+                    # 텍스트 메시지 처리 (JSON)
+                    if self.debug_mode:
+                        logger.debug(f"[{client_id}] 메시지 수신: {message[:100]}...")
+                    
+                    data = json.loads(message)
+                    
+                    if data.get("type") == "landmarks":
+                        # 랜드마크 벡터 데이터 처리
+                        landmarks_data = data.get("data")
                         
-                        if frame is not None:
-                            result = self.process_frame(frame, client_id)
+                        if landmarks_data:
+                            result = self.process_landmarks(landmarks_data, client_id)
                             
                             if result:
                                 # 결과를 클라이언트로 전송
@@ -726,59 +698,46 @@ class SignClassifierWebSocketServer:
                                     "data": result,
                                     "timestamp": asyncio.get_event_loop().time()
                                 }
-                                await connection.send(json.dumps(response))
-                        
-                        # 메모리 최적화: 프레임 명시적 해제
-                        del frame
-                        
+                                await websocket.send(json.dumps(response))
+                        else:
+                            logger.warning(f"[{client_id}] 빈 랜드마크 데이터")
+                    
+                    elif data.get("type") == "ping":
+                        # 핑 응답
+                        await websocket.send(json.dumps({"type": "pong"}))
+                    
                     else:
-                        # JSON 메시지 처리 (기존 방식 유지)
-                        data = json.loads(message)
-                        
-                        if data.get("type") == "video_chunk":
-                            # 비디오 청크 처리
-                            chunk_data = base64.b64decode(data["data"])
-                            frame = self.bytes_to_frame(chunk_data)
-                            
-                            if frame is not None:
-                                result = self.process_frame(frame, client_id)
-                                
-                                if result:
-                                    # 결과를 클라이언트로 전송
-                                    response = {
-                                        "type": "classification_result",
-                                        "data": result,
-                                        "timestamp": asyncio.get_event_loop().time()
-                                    }
-                                    await connection.send(json.dumps(response))
-                            
-                            # 메모리 최적화: 변수 명시적 해제
-                            del chunk_data, frame
-                        
-                        elif data.get("type") == "ping":
-                            # 핑 응답
-                            await connection.send(json.dumps({"type": "pong"}))
+                        logger.warning(f"[{client_id}] 알 수 없는 메시지 타입: {data.get('type')}")
                         
                 except json.JSONDecodeError:
                     logger.warning(f"잘못된 JSON 메시지: {client_id}")
+                except UnicodeDecodeError as e:
+                    logger.warning(f"UTF-8 디코딩 오류 [{client_id}]: {e} - 바이너리 데이터가 텍스트로 전송됨")
                 except Exception as e:
                     logger.error(f"메시지 처리 실패 [{client_id}]: {e}")
                     # 에러 발생 시 클라이언트에게 알림
                     try:
-                        await connection.send(json.dumps({
+                        await websocket.send(json.dumps({
                             "type": "error",
-                            "message": "프레임 처리 중 오류가 발생했습니다."
+                            "message": "랜드마크 처리 중 오류가 발생했습니다."
                         }))
                     except:
                         pass  # 연결이 끊어진 경우 무시
                     
         except websockets.exceptions.ConnectionClosed:
             logger.info(f"🔴 클라이언트 연결 종료: {client_id}")
+        except websockets.exceptions.ConnectionClosedError:
+            logger.info(f"🔴 클라이언트 연결 오류로 종료: {client_id}")
         except Exception as e:
             logger.error(f"클라이언트 처리 중 오류 [{client_id}]: {e}")
+            import traceback
+            logger.error(f"상세 오류 정보: {traceback.format_exc()}")
         finally:
-            self.clients.remove(connection)
-            self.cleanup_client(client_id)
+            try:
+                self.clients.remove(websocket)
+                self.cleanup_client(client_id)
+            except Exception as cleanup_error:
+                logger.error(f"클라이언트 정리 중 오류 [{client_id}]: {cleanup_error}")
     
     async def run_server(self):
         """WebSocket 서버 실행"""
@@ -794,15 +753,12 @@ class SignClassifierWebSocketServer:
         logger.info(f"   - 모델: {self.MODEL_SAVE_PATH}")
         logger.info(f"   - 라벨 수: {len(self.ACTIONS)}")
         logger.info(f"   - 시퀀스 길이: {self.MAX_SEQ_LENGTH}")
-        logger.info(f"   - 디버그 모드: {self.debug_video}")
+        logger.info(f"   - 디버그 모드: {self.debug_mode}")
         logger.info(f"⚡ 성능 최적화 설정:")
-        logger.info(f"   - 프레임 스킵: {self.frame_skip_rate}프레임 중 1프레임 처리")
-        logger.info(f"   - 예측 간격: {self.prediction_interval}프레임마다 예측")
-        logger.info(f"   - 디버그 업데이트: {self.debug_update_interval}프레임마다 화면 업데이트")
-        logger.info(f"   - MediaPipe 복잡도: 0 (최고 성능)")
-        logger.info(f"   - 프레임 크기 제한: {self.max_frame_width}px")
+        logger.info(f"   - 예측 간격: {self.prediction_interval}벡터마다 예측")
         logger.info(f"   - TensorFlow XLA JIT: 활성화")
         logger.info(f"   - Performance profiling: {self.enable_profiling}")
+        logger.info(f"🔄 벡터 처리 모드 - JSON 랜드마크 데이터만 지원")
         logger.info(f"🏁 Starting server with optimized settings...")
         
         try:
@@ -810,10 +766,8 @@ class SignClassifierWebSocketServer:
         except KeyboardInterrupt:
             logger.info("🛑 서버 종료 중...")
         finally:
-            # 디버그 모드인 경우 모든 OpenCV 윈도우 정리
-            if self.debug_video:
-                cv2.destroyAllWindows()
-                logger.info("🎥 디버그 윈도우 정리 완료")
+            # 벡터 처리 모드에서는 별도 정리 작업 없음
+            logger.info("🔄 벡터 처리 서버 종료 완료")
 
 def setup_logging(log_level='INFO'):
     """로깅 설정을 동적으로 구성"""
@@ -851,38 +805,28 @@ def setup_logging(log_level='INFO'):
 def main():
     """메인 함수"""
     
-    parser = argparse.ArgumentParser(description='Sign Classifier WebSocket Server')
+    parser = argparse.ArgumentParser(description='Sign Classifier WebSocket Server (Vector Processing Mode)')
     parser.add_argument("--port", type=int, required=True, help="Port number for the server")
     parser.add_argument("--env", type=str, required=True, help="Environment variable model_info_URL")
+    parser.add_argument("--host", type=str, default="localhost", help="Host to bind the server to (default: localhost)")
     parser.add_argument("--log-level", type=str, default='INFO', 
                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'OFF'],
                        help="Set logging level (default: INFO, use OFF to disable all logs)")
-    parser.add_argument("--debug-video", action='store_true',
-                       help="Enable video debug mode to display received frames")
-    parser.add_argument("--frame-skip", type=int, default=3,
-                       help="Frame skip rate (process 1 frame every N frames, default: 3)")
-    parser.add_argument("--prediction-interval", type=int, default=10,
-                       help="Prediction interval (run prediction every N frames, default: 10)")
-    parser.add_argument("--max-frame-width", type=int, default=640,
-                       help="Maximum frame width for processing (default: 640)")
+    parser.add_argument("--debug", action='store_true',
+                       help="Enable debug mode for additional logging")
+    parser.add_argument("--prediction-interval", type=int, default=5,
+                       help="Prediction interval (run prediction every N vectors, default: 5)")
     parser.add_argument("--profile", action='store_true',
                        help="Enable detailed performance profiling")
-    parser.add_argument("--aggressive-mode", action='store_true',
-                       help="Enable aggressive optimization mode (may reduce accuracy)")
-    parser.add_argument("--accuracy-mode", action='store_true',
-                       help="Enable accuracy-first mode (may reduce performance)")
     args = parser.parse_args()
     
     port = args.port
     model_info_url = args.env
+    host = args.host
     log_level = args.log_level
-    debug_video = args.debug_video
-    frame_skip = args.frame_skip
+    debug_mode = args.debug
     prediction_interval = args.prediction_interval
-    max_frame_width = args.max_frame_width
     enable_profiling = args.profile
-    aggressive_mode = args.aggressive_mode
-    accuracy_mode = args.accuracy_mode
     
     # 로깅 설정 (동적으로 설정)
     global logger
@@ -890,19 +834,16 @@ def main():
     
     # 로그가 꺼져있지 않은 경우에만 시작 메시지 출력
     if log_level.upper() != 'OFF':
-        print(f"🚀 Starting sign classifier WebSocket server...")
+        print(f"🚀 Starting sign classifier WebSocket server (Vector Processing Mode)...")
         print(f"📁 Model data URL: {model_info_url}")
         print(f"🔌 Port: {port}")
         print(f"📊 Log level: {log_level}")
-        print(f"🎥 Debug video: {debug_video}")
+        print(f"🔍 Debug mode: {debug_mode}")
         print(f"⚡ Performance settings:")
-        print(f"   - Frame skip: {frame_skip}")
         print(f"   - Prediction interval: {prediction_interval}")
-        print(f"   - Max frame width: {max_frame_width}")
         print(f"   - Performance profiling: {enable_profiling}")
-        print(f"   - Aggressive mode: {aggressive_mode}")
-        print(f"   - Accuracy mode: {accuracy_mode}")
-        print(f"🏁 Starting server with optimized settings...")
+        print(f"🔄 Vector processing mode - MediaPipe processing moved to frontend")
+        print(f"🏁 Starting server with optimized vector processing...")
     
     # 현재 스크립트 파일의 위치를 기준으로 프로젝트 루트 계산
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -940,13 +881,21 @@ def main():
     
     # 서버 생성 및 실행
     # localhost should be changed to the server's IP address when deploying to a server
-    server = SignClassifierWebSocketServer(model_info_url_processed, host="0.0.0.0", port=port, debug_video=debug_video, frame_skip=frame_skip, prediction_interval=prediction_interval, max_frame_width=max_frame_width, enable_profiling=enable_profiling, aggressive_mode=aggressive_mode, accuracy_mode=accuracy_mode)
+    server = SignClassifierWebSocketServer(
+        model_info_url_processed, 
+        host="0.0.0.0", 
+        port=port,
+        debug_mode=debug_mode,
+        prediction_interval=prediction_interval,
+        enable_profiling=enable_profiling
+    )
     
     # 디버그 모드 활성화 시 알림
-    if debug_video:
-        logger.info("🎥 비디오 디버그 모드 활성화 - 수신된 프레임을 실시간으로 표시합니다")
-        logger.info("   - ESC 키를 눌러 디버그 모드를 종료할 수 있습니다")
-        logger.info("   - 각 클라이언트별로 별도의 창이 표시됩니다")
+    if debug_mode:
+        logger.info("🔍 디버그 모드 활성화 - 추가 로깅 정보가 출력됩니다")
+        logger.info("   - 벡터 처리 성능 정보")
+        logger.info("   - 랜드마크 데이터 유효성 검사 결과")
+        logger.info("   - 클라이언트별 상세 처리 정보")
     
     asyncio.run(server.run_server())
 
