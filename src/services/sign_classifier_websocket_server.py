@@ -832,18 +832,18 @@ def main():
     global logger
     logger = setup_logging(log_level)
     
-    # 로그가 꺼져있지 않은 경우에만 시작 메시지 출력
+    # 로그가 꺼져있지 않은 경우에만 시작 메시지 출력 (이모지 제거)
     if log_level.upper() != 'OFF':
-        print(f"🚀 Starting sign classifier WebSocket server (Vector Processing Mode)...")
-        print(f"📁 Model data URL: {model_info_url}")
-        print(f"🔌 Port: {port}")
-        print(f"📊 Log level: {log_level}")
-        print(f"🔍 Debug mode: {debug_mode}")
-        print(f"⚡ Performance settings:")
+        print(f"Starting sign classifier WebSocket server (Vector Processing Mode)...")
+        print(f"Model data URL: {model_info_url}")
+        print(f"Port: {port}")
+        print(f"Log level: {log_level}")
+        print(f"Debug mode: {debug_mode}")
+        print(f"Performance settings:")
         print(f"   - Prediction interval: {prediction_interval}")
         print(f"   - Performance profiling: {enable_profiling}")
-        print(f"🔄 Vector processing mode - MediaPipe processing moved to frontend")
-        print(f"🏁 Starting server with optimized vector processing...")
+        print(f"Vector processing mode - MediaPipe processing moved to frontend")
+        print(f"Starting server with optimized vector processing...")
     
     # 현재 스크립트 파일의 위치를 기준으로 프로젝트 루트 계산
     current_dir = os.path.dirname(os.path.abspath(__file__))

@@ -4,9 +4,9 @@ import os
 import threading
 import time
 from typing import Dict, Optional
-
+import sys
 from ..core.config import settings
-
+ppath = sys.executable
 class ModelServerManager:
     def __init__(self):
         self.MODEL_PORT_BASE = 9000
@@ -45,7 +45,7 @@ class ModelServerManager:
             # Set the working directory to the parent of the services directory
             working_dir = os.path.dirname(os.path.dirname(__file__))
             process = subprocess.Popen([
-                "python", "-u", script_path,
+                ppath, "-u", script_path,
                 "--port", str(port),
                 "--env", model_data_url,
                 "--log-level", "INFO",
@@ -86,7 +86,7 @@ class ModelServerManager:
         MODEL_SERVER_HOST = settings.MODEL_SERVER_HOST
         
         if MODEL_SERVER_HOST == "localhost":
-            return f"ws://0.0.0.0:{port}/ws"
+            return f"ws://localhost:{port}/ws"
         else:
             return f"wss://{MODEL_SERVER_HOST}/ws/{port}/ws"
     
@@ -116,7 +116,7 @@ class ModelServerManager:
         """실행 중인 모델 서버의 URL 반환"""
         if model_id in self.running_servers:
             port = self.running_servers[model_id]
-            return f"ws://0.0.0.0:{port}/ws"
+            return f"ws://localhost:{port}/ws"
         return None
     
     def _handle_logs_thread(self, model_id: str, process: subprocess.Popen):
