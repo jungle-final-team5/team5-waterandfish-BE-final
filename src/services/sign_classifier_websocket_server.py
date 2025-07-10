@@ -185,9 +185,9 @@ class SignClassifierWebSocketServer:
             logger.error(f"❌ 모델 정보 파일 로드 실패: {e}")
             return None
     
-    def get_client_id(self, websocket):
+    def get_client_id(self, connection):
         """클라이언트 ID 생성"""
-        return f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
+        return f"{connection.remote_address[0]}:{connection.remote_address[1]}"
     
     def initialize_client(self, client_id):
         """클라이언트 초기화"""
@@ -602,17 +602,17 @@ class SignClassifierWebSocketServer:
         finally:
             self.client_states[client_id]["is_processing"] = False
     
-    async def handle_client(self, websocket, path):
+    async def handle_client(self, connection):
         """클라이언트 연결 처리"""
-        client_id = self.get_client_id(websocket)
-        self.clients.add(websocket)
+        client_id = self.get_client_id(connection)
+        self.clients.add(connection)
         self.initialize_client(client_id)
         
         logger.info(f"🟢 Vector processing client connected: {client_id}")
         logger.info(f"📋 Expected message format: JSON with 'type': 'landmarks' and 'data': [landmark_vectors]")
         
         try:
-            async for message in websocket:
+            async for message in connection:
                 try:
                     # 메시지 타입 확인 (텍스트 또는 바이너리)
                     if isinstance(message, bytes):
@@ -667,7 +667,7 @@ class SignClassifierWebSocketServer:
                     logger.error(f"메시지 처리 실패 [{client_id}]: {e}")
                     # 에러 발생 시 클라이언트에게 알림
                     try:
-                        await websocket.send(json.dumps({
+                        await connection.send(json.dumps({
                             "type": "error",
                             "message": "랜드마크 처리 중 오류가 발생했습니다."
                         }))
@@ -830,14 +830,8 @@ def main():
         logger.info(f"✅ 로컬 모델 정보 파일 확인됨: {model_info_url_full}")
     
     # 서버 생성 및 실행
-    server = SignClassifierWebSocketServer(
-        model_info_url_processed, 
-        host=host, 
-        port=port, 
-        debug_mode=debug_mode, 
-        prediction_interval=prediction_interval, 
-        enable_profiling=enable_profiling
-    )
+    # localhost should be changed to the server's IP address when deploying to a server
+    server = SignClassifierWebSocketServer(model_info_url_processed, host="0.0.0.0", port=port, debug_video=debug_video, frame_skip=frame_skip, prediction_interval=prediction_interval, max_frame_width=max_frame_width, enable_profiling=enable_profiling, aggressive_mode=aggressive_mode, accuracy_mode=accuracy_mode)
     
     # 디버그 모드 활성화 시 알림
     if debug_mode:

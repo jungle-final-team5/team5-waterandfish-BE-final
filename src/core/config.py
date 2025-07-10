@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str = Field("", env="AWS_SECRET_ACCESS_KEY")
     AWS_REGION: str = Field("ap-northeast-2", env="AWS_REGION")
 
+    MODEL_SERVER_HOST: str = Field("localhost", env="MODEL_SERVER_HOST")
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
