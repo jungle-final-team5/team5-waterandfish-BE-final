@@ -67,14 +67,12 @@ class SignClassifierWebSocketServer:
         # 먼저 S3에서 시도
         
         try:
-            logger.info(f"📁 S3에서 모델 파일 다운로드 중: {model_path}")
-            
+            logger.info(f"S3에서 모델 파일 다운로드 중: {model_path}")
             # S3에서 모델 파일 다운로드
             self.MODEL_SAVE_PATH = s3_utils.download_file_from_s3(model_path)
-            
-            logger.info(f"✅ S3 모델 파일 다운로드 완료: {self.MODEL_SAVE_PATH}")
+            logger.info(f"S3 모델 파일 다운로드 완료: {self.MODEL_SAVE_PATH}")
         except Exception as e:
-            logger.warning(f"⚠️ S3 다운로드 실패, 로컬 경로로 시도: {e}")
+            logger.warning(f"S3 다운로드 실패, 로컬 경로로 시도: {e}")
             # 로컬 경로 처리
             # model_path가 이미 "models/"로 시작하는 경우 중복 방지
             if model_path.startswith("models/"):
@@ -91,22 +89,21 @@ class SignClassifierWebSocketServer:
         self.ACTIONS = self.model_info["labels"]
         self.QUIZ_LABELS = [a for a in self.ACTIONS if a != "None"]
         
-        logger.info(f"📋 로드된 라벨: {self.ACTIONS}")
-        logger.info(f"🎯 퀴즈 라벨: {self.QUIZ_LABELS}")
-        logger.info(f"📊 원본 모델 경로: {self.model_info['model_path']}")
-        logger.info(f"📊 변환된 모델 경로: {self.MODEL_SAVE_PATH}")
-        logger.info(f"⏱️ 시퀀스 길이: {self.MAX_SEQ_LENGTH}")
-        logger.info(f"🚀 성능 설정: 예측 간격={self.prediction_interval}")
+        logger.info(f"로드된 라벨: {self.ACTIONS}")
+        logger.info(f"퀴즈 라벨: {self.QUIZ_LABELS}")
+        logger.info(f"원본 모델 경로: {self.model_info['model_path']}")
+        logger.info(f"변환된 모델 경로: {self.MODEL_SAVE_PATH}")
+        logger.info(f"시퀀스 길이: {self.MAX_SEQ_LENGTH}")
+        logger.info(f"성능 설정: 예측 간격={self.prediction_interval}")
         
         # 모델 파일 존재 확인
         if not os.path.exists(self.MODEL_SAVE_PATH):
-            logger.error(f"❌ 모델 파일을 찾을 수 없습니다: {self.MODEL_SAVE_PATH}")
+            logger.error(f"모델 파일을 찾을 수 없습니다: {self.MODEL_SAVE_PATH}")
             raise FileNotFoundError(f"모델 파일을 찾을 수 없습니다: {self.MODEL_SAVE_PATH}")
-        
-        logger.info(f"✅ 모델 파일 존재 확인: {self.MODEL_SAVE_PATH}")
+        logger.info(f"모델 파일 존재 확인: {self.MODEL_SAVE_PATH}")
         
         # MediaPipe 관련 초기화 제거 - 프론트엔드에서 처리
-        logger.info("🔄 벡터 처리 모드 - MediaPipe는 프론트엔드에서 처리됩니다")
+        logger.info("벡터 처리 모드 - MediaPipe는 프론트엔드에서 처리됩니다")
         
         # 모델 로드
         try:
@@ -117,7 +114,7 @@ class SignClassifierWebSocketServer:
             if not model_loaded:
                 try:
                     self.model = tf.keras.models.load_model(self.MODEL_SAVE_PATH)
-                    logger.info(f"✅ tf-keras로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+                    logger.info(f"tf-keras로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
                     model_loaded = True
                 except Exception as tf_error:
                     logger.info(f"tf-keras 로딩 실패: {tf_error}")
@@ -127,7 +124,7 @@ class SignClassifierWebSocketServer:
                 try:
                     import keras
                     self.model = keras.models.load_model(self.MODEL_SAVE_PATH)
-                    logger.info(f"✅ keras로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+                    logger.info(f"keras로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
                     model_loaded = True
                 except Exception as keras_error:
                     logger.info(f"keras 로딩 실패: {keras_error}")
@@ -136,7 +133,7 @@ class SignClassifierWebSocketServer:
             if not model_loaded:
                 try:
                     self.model = tf.keras.models.load_model(self.MODEL_SAVE_PATH, compile=False)
-                    logger.info(f"✅ tf-keras (compile=False)로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+                    logger.info(f"tf-keras (compile=False)로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
                     model_loaded = True
                 except Exception as compile_false_error:
                     logger.info(f"tf-keras (compile=False) 로딩 실패: {compile_false_error}")
@@ -146,7 +143,7 @@ class SignClassifierWebSocketServer:
                 try:
                     import keras
                     self.model = keras.models.load_model(self.MODEL_SAVE_PATH, compile=False)
-                    logger.info(f"✅ keras (compile=False)로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+                    logger.info(f"keras (compile=False)로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
                     model_loaded = True
                 except Exception as keras_compile_false_error:
                     logger.info(f"keras (compile=False) 로딩 실패: {keras_compile_false_error}")
@@ -155,7 +152,7 @@ class SignClassifierWebSocketServer:
             if not model_loaded:
                 try:
                     self.model = tf.keras.models.load_model(self.MODEL_SAVE_PATH, custom_objects={})
-                    logger.info(f"✅ tf-keras (custom_objects={{}})로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+                    logger.info(f"tf-keras (custom_objects={{}})로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
                     model_loaded = True
                 except Exception as custom_objects_error:
                     logger.info(f"tf-keras (custom_objects={{}}) 로딩 실패: {custom_objects_error}")
@@ -169,10 +166,10 @@ class SignClassifierWebSocketServer:
             # 모델 warming up (첫 번째 예측 시 느린 속도 방지)
             dummy_input = np.zeros((1, self.MAX_SEQ_LENGTH, 675))
             _ = self.model.predict(dummy_input, verbose=0)
-            logger.info("🔥 모델 warming up 완료")
+            logger.info("모델 warming up 완료")
             
         except Exception as e:
-            logger.error(f"❌ 모델 로딩 실패: {e}")
+            logger.error(f"모델 로딩 실패: {e}")
             raise
         
         # 시퀀스 버퍼 (클라이언트별로 관리)
@@ -253,7 +250,7 @@ class SignClassifierWebSocketServer:
                 "same_count": 0
             }
             self.client_vector_counters[client_id] = 0
-            logger.info(f"🆕 클라이언트 초기화: {client_id}")
+        logger.info(f"클라이언트 초기화: {client_id}")
     
     def cleanup_client(self, client_id):
         """클라이언트 정리"""
@@ -268,7 +265,7 @@ class SignClassifierWebSocketServer:
         
         # 벡터 처리 모드에서는 별도 정리 작업 없음
         
-        logger.info(f"🧹 클라이언트 정리: {client_id}")
+        logger.info(f"클라이언트 정리: {client_id}")
     
     def validate_landmarks_data(self, landmarks_data):
         """랜드마크 데이터 유효성 검사"""
@@ -334,7 +331,7 @@ class SignClassifierWebSocketServer:
         
         # 성능 프로파일링 출력 (10ms 이상 걸리는 경우만)
         if self.enable_profiling and total_time > 0.01:
-            logger.info(f"🏃 동적특성 추출 성능:")
+            logger.info(f"동적특성 추출 성능:")
             logger.info(f"   전체: {total_time*1000:.1f}ms")
             logger.info(f"   속도계산: {velocity_time*1000:.1f}ms")
             logger.info(f"   가속도계산: {acceleration_time*1000:.1f}ms")
@@ -440,7 +437,7 @@ class SignClassifierWebSocketServer:
         
         # 성능 프로파일링 출력 (20ms 이상 걸리는 경우만)
         if self.enable_profiling and total_time > 0.02:
-            logger.info(f"🎯 상대좌표 변환 성능:")
+            logger.info(f"상대좌표 변환 성능:")
             logger.info(f"   전체: {total_time*1000:.1f}ms")
             logger.info(f"   어깨계산: {shoulder_calc_time*1000:.1f}ms")
             logger.info(f"   포즈계산: {pose_calc_time*1000:.1f}ms")
@@ -501,7 +498,7 @@ class SignClassifierWebSocketServer:
         
         # 성능 프로파일링 출력 (50ms 이상 걸리는 경우만)
         if self.enable_profiling and total_time > 0.05:
-            logger.info(f"🔬 랜드마크 전처리 성능:")
+            logger.info(f"랜드마크 전처리 성능:")
             logger.info(f"   전체: {total_time*1000:.1f}ms")
             logger.info(f"   상대좌표: {relative_time*1000:.1f}ms")
             logger.info(f"   프레임처리: {processing_time*1000:.1f}ms")
@@ -516,7 +513,7 @@ class SignClassifierWebSocketServer:
         
         # 로그 출력 주기 제한 (너무 빈번한 로그 방지)
         if current_time - self.last_log_time >= self.log_interval:
-            logger.info(f"🎯 [{client_id}] 예측: {result['prediction']} (신뢰도: {result['confidence']:.3f})")
+            logger.info(f"[{client_id}] 예측: {result['prediction']} (신뢰도: {result['confidence']:.3f})")
 
             message = json.dumps({
                 "type": "classification_log",
@@ -630,11 +627,10 @@ class SignClassifierWebSocketServer:
             
             # 성능 프로파일링 출력 (프로파일링 모드가 활성화된 경우)
             if self.enable_profiling and total_time > 0.05:  # 50ms 이상 걸리는 경우만 로그
-                logger.info(f"⚡ [{client_id}] 프레임 #{self.performance_stats['total_vectors']}: {total_time*1000:.1f}ms (전처리:{preprocessing_time*1000:.1f}ms, 예측:{prediction_time*1000:.1f}ms)")
-                
+                logger.info(f"[{client_id}] 프레임 #{self.performance_stats['total_vectors']}: {total_time*1000:.1f}ms (전처리:{preprocessing_time*1000:.1f}ms, 예측:{prediction_time*1000:.1f}ms)")
                 # 100프레임마다 성능 요약 출력
                 if self.performance_stats['total_vectors'] % 100 == 0:
-                    logger.info(f"📊 성능 요약 (100벡터 평균):")
+                    logger.info(f"성능 요약 (100벡터 평균):")
                     logger.info(f"   평균 전처리: {self.performance_stats['avg_preprocessing_time']*1000:.1f}ms")
                     logger.info(f"   평균 예측: {self.performance_stats['avg_prediction_time']*1000:.1f}ms")
                     logger.info(f"   최대 프레임 시간: {self.performance_stats['max_processing_time']*1000:.1f}ms")
@@ -642,7 +638,7 @@ class SignClassifierWebSocketServer:
             
             # 디버그 모드에서는 간단한 성능 정보만 출력
             elif self.debug_mode and total_time > 0.1:  # 100ms 이상 걸리는 경우만 로그
-                logger.info(f"⚡ [{client_id}] 느린 벡터 감지: {total_time*1000:.1f}ms")
+                logger.info(f"[{client_id}] 느린 벡터 감지: {total_time*1000:.1f}ms")
             
             return result
                 
@@ -657,18 +653,16 @@ class SignClassifierWebSocketServer:
         client_id = self.get_client_id(websocket)
         self.clients.add(websocket)
         self.initialize_client(client_id)
-        
-        logger.info(f"🟢 Vector processing client connected: {client_id}")
-        logger.info(f"📋 Expected message format: JSON with 'type': 'landmarks' and 'data': [landmark_vectors]")
-        
+
+        logger.info(f"Vector processing client connected: {client_id}")
+        logger.info(f"Expected message format: JSON with 'type': 'landmarks' and 'data': [landmark_vectors]")
+
         try:
             async for message in websocket:
                 try:
                     # 메시지 타입 확인 (텍스트 또는 바이너리)
                     if isinstance(message, bytes):
-                        # 바이너리 메시지 처리
                         logger.warning(f"[{client_id}] 바이너리 메시지 수신됨 (길이: {len(message)} bytes) - 벡터 처리 모드에서는 지원하지 않음")
-                        # 클라이언트에게 바이너리 메시지가 지원되지 않음을 알림
                         try:
                             await websocket.send(json.dumps({
                                 "type": "error",
@@ -677,22 +671,17 @@ class SignClassifierWebSocketServer:
                         except:
                             pass
                         continue
-                    
-                    # 텍스트 메시지 처리 (JSON)
+
                     if self.debug_mode:
                         logger.debug(f"[{client_id}] 메시지 수신: {message[:100]}...")
-                    
+
                     data = json.loads(message)
-                    
+
                     if data.get("type") == "landmarks":
-                        # 랜드마크 벡터 데이터 처리
                         landmarks_data = data.get("data")
-                        
                         if landmarks_data:
                             result = self.process_landmarks(landmarks_data, client_id)
-                            
                             if result:
-                                # 결과를 클라이언트로 전송
                                 response = {
                                     "type": "classification_result",
                                     "data": result,
@@ -701,33 +690,31 @@ class SignClassifierWebSocketServer:
                                 await websocket.send(json.dumps(response))
                         else:
                             logger.warning(f"[{client_id}] 빈 랜드마크 데이터")
-                    
+
                     elif data.get("type") == "ping":
-                        # 핑 응답
                         await websocket.send(json.dumps({"type": "pong"}))
-                    
+
                     else:
                         logger.warning(f"[{client_id}] 알 수 없는 메시지 타입: {data.get('type')}")
-                        
+
                 except json.JSONDecodeError:
                     logger.warning(f"잘못된 JSON 메시지: {client_id}")
                 except UnicodeDecodeError as e:
                     logger.warning(f"UTF-8 디코딩 오류 [{client_id}]: {e} - 바이너리 데이터가 텍스트로 전송됨")
                 except Exception as e:
                     logger.error(f"메시지 처리 실패 [{client_id}]: {e}")
-                    # 에러 발생 시 클라이언트에게 알림
                     try:
                         await websocket.send(json.dumps({
                             "type": "error",
                             "message": "랜드마크 처리 중 오류가 발생했습니다."
                         }))
                     except:
-                        pass  # 연결이 끊어진 경우 무시
-                    
+                        pass
+
         except websockets.exceptions.ConnectionClosed:
-            logger.info(f"🔴 클라이언트 연결 종료: {client_id}")
+            logger.info(f"클라이언트 연결 종료: {client_id}")
         except websockets.exceptions.ConnectionClosedError:
-            logger.info(f"🔴 클라이언트 연결 오류로 종료: {client_id}")
+            logger.info(f"클라이언트 연결 오류로 종료: {client_id}")
         except Exception as e:
             logger.error(f"클라이언트 처리 중 오류 [{client_id}]: {e}")
             import traceback
@@ -736,6 +723,10 @@ class SignClassifierWebSocketServer:
             try:
                 self.clients.remove(websocket)
                 self.cleanup_client(client_id)
+                # 모든 클라이언트가 끊겼으면 프로세스 종료
+                if not self.clients:
+                    logger.info("모든 클라이언트 연결 종료됨. 서버 프로세스 종료.")
+                    os._exit(0)
             except Exception as cleanup_error:
                 logger.error(f"클라이언트 정리 중 오류 [{client_id}]: {cleanup_error}")
     
@@ -746,20 +737,20 @@ class SignClassifierWebSocketServer:
             self.host, 
             self.port
         )
-        logger.info(f"🚀 수어 분류 WebSocket 서버 시작: ws://{self.host}:{self.port}")
-        logger.info(f"📊 서버 정보:")
+        logger.info(f"수어 분류 WebSocket 서버 시작: ws://{self.host}:{self.port}")
+        logger.info(f"서버 정보:")
         logger.info(f"   - 호스트: {self.host}")
         logger.info(f"   - 포트: {self.port}")
         logger.info(f"   - 모델: {self.MODEL_SAVE_PATH}")
         logger.info(f"   - 라벨 수: {len(self.ACTIONS)}")
         logger.info(f"   - 시퀀스 길이: {self.MAX_SEQ_LENGTH}")
         logger.info(f"   - 디버그 모드: {self.debug_mode}")
-        logger.info(f"⚡ 성능 최적화 설정:")
+        logger.info(f"성능 최적화 설정:")
         logger.info(f"   - 예측 간격: {self.prediction_interval}벡터마다 예측")
         logger.info(f"   - TensorFlow XLA JIT: 활성화")
         logger.info(f"   - Performance profiling: {self.enable_profiling}")
-        logger.info(f"🔄 벡터 처리 모드 - JSON 랜드마크 데이터만 지원")
-        logger.info(f"🏁 Starting server with optimized settings...")
+        logger.info(f"벡터 처리 모드 - JSON 랜드마크 데이터만 지원")
+        logger.info(f"Starting server with optimized settings...")
         
         try:
             await server.wait_closed()
@@ -856,13 +847,13 @@ def main():
         # 파일명만 전달된 경우
         model_info_url_processed = f"s3://waterandfish-s3/model-info/{model_info_url}"
     
-    logger.info(f"📁 원본 모델 데이터 URL: {model_info_url}")
-    logger.info(f"📁 처리된 모델 데이터 경로: {model_info_url_processed}")
-    logger.info(f"🔌 포트: {port}")
+    logger.info(f"원본 모델 데이터 URL: {model_info_url}")
+    logger.info(f"처리된 모델 데이터 경로: {model_info_url_processed}")
+    logger.info(f"포트: {port}")
     
     # S3 URL인지 확인
     if model_info_url_processed.startswith('s3://'):
-        logger.info(f"✅ S3 모델 경로 확인됨: {model_info_url_processed}")
+        logger.info(f"S3 모델 경로 확인됨: {model_info_url_processed}")
     else:
         # 로컬 파일 경로인 경우 존재 여부 확인
         if not os.path.isabs(model_info_url_processed):
@@ -877,7 +868,7 @@ def main():
             logger.error(f"❌ 모델 정보 파일을 찾을 수 없습니다: {model_info_url_full}")
             sys.exit(1)
         
-        logger.info(f"✅ 로컬 모델 정보 파일 확인됨: {model_info_url_full}")
+        logger.info(f"로컬 모델 정보 파일 확인됨: {model_info_url_full}")
     
     # 서버 생성 및 실행
     # localhost should be changed to the server's IP address when deploying to a server
@@ -892,7 +883,7 @@ def main():
     
     # 디버그 모드 활성화 시 알림
     if debug_mode:
-        logger.info("🔍 디버그 모드 활성화 - 추가 로깅 정보가 출력됩니다")
+        logger.info("디버그 모드 활성화 - 추가 로깅 정보가 출력됩니다")
         logger.info("   - 벡터 처리 성능 정보")
         logger.info("   - 랜드마크 데이터 유효성 검사 결과")
         logger.info("   - 클라이언트별 상세 처리 정보")

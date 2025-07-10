@@ -25,25 +25,72 @@ async def deploy_model(chapter_id, db: AsyncIOMotorDatabase = None, use_webrtc: 
     # 모델 데이터 URL이 있는 레슨 확인
     model_data_urls = [lesson.get("model_data_url") for lesson in lessons if lesson.get("model_data_url")]
 
+    import signal
+    def is_server_alive_by_pid(pid):
+        try:
+            if pid is None:
+                return False
+            # Windows
+            if os.name == 'nt':
+                import psutil
+                return psutil.pid_exists(pid)
+            # Unix
+            else:
+                os.kill(pid, 0)
+                return True
+        except Exception:
+            return False
+
+    # 관리 객체에서 죽은 서버 정보 정리
+    def cleanup_dead_servers():
+        dead_ids = []
+        for model_id, process in list(model_server_manager.server_processes.items()):
+            pid = process.pid if process else None
+            if not is_server_alive_by_pid(pid):
+                dead_ids.append(model_id)
+        for model_id in dead_ids:
+            print(f"[CLEANUP] Removing dead server info for {model_id}")
+            running_models.pop(model_id, None)
+            model_server_manager.running_servers.pop(model_id, None)
+            model_server_manager.server_processes.pop(model_id, None)
+    cleanup_dead_servers()
+
     ws_urls = []
     for model_data_url in model_data_urls:
         model_id = model_data_url
-        
-        if model_id in running_models: # 이미 실행중인 모델이면 웹소켓 주소 추가
-            print(f"Model server already running for {model_id}")
-            ws_urls.append(running_models[model_id]) 
-        else: # 모델 서버 시작
+        server_alive = False
+        # 직접 프로세스 상태 확인
+        process = model_server_manager.server_processes.get(model_id)
+        pid = process.pid if process else None
+        if model_id in running_models:
             try:
-                ws_url = await model_server_manager.start_model_server(model_id, model_data_url, True)
-            except Exception as e:
-                print(f"Failed to start model server for {model_id}: {str(e)}")
-                # Continue with other models even if one fails
-                raise Exception(f"Failed to start model server for {model_id}: {str(e)}")
-            ws_urls.append(ws_url)
-            running_models[model_id] = ws_url
-            model_server_manager.running_servers[model_id] = ws_url
-            server_type = "WebRTC" if use_webrtc else "WebSocket"
-            print(f"{server_type} model server deployed for chapter {chapter_id}: {ws_url}")
+                server_alive = is_server_alive_by_pid(pid)
+            except Exception:
+                server_alive = False
+            if server_alive:
+                print(f"Model server already running for {model_id}")
+                ws_urls.append(running_models[model_id])
+                continue
+            else:
+                print(f"Model server for {model_id} is not alive. Restarting...")
+                running_models.pop(model_id, None)
+                model_server_manager.running_servers.pop(model_id, None)
+                model_server_manager.server_processes.pop(model_id, None)
+        # 모델 서버 시작
+        try:
+            ws_url = await model_server_manager.start_model_server(model_id, model_data_url, True)
+        except Exception as e:
+            print(f"Failed to start model server for {model_id}: {str(e)}")
+            # Continue with other models even if one fails
+            raise Exception(f"Failed to start model server for {model_id}: {str(e)}")
+        ws_urls.append(ws_url)
+        running_models[model_id] = ws_url
+        model_server_manager.running_servers[model_id] = ws_url
+        server_type = "WebRTC" if use_webrtc else "WebSocket"
+        print(f"{server_type} model server deployed for chapter {chapter_id}: {ws_url}")
+        print(f"현재 running_models: {dict(running_models)}")
+        print(f"현재 model_server_manager.running_servers: {dict(model_server_manager.running_servers)}")
+        print(f"현재 model_server_manager.server_processes: {{k: v.pid if v else None for k, v in model_server_manager.server_processes.items()}}")
     
     lesson_mapper = defaultdict(str)
     for lesson in lessons:
