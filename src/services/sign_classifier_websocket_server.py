@@ -608,12 +608,30 @@ class SignClassifierWebSocketServer:
         self.clients.add(websocket)
         self.initialize_client(client_id)
         
-        logger.info(f"🟢 client connected: {client_id}")
+        logger.info(f"🟢 Vector processing client connected: {client_id}")
+        logger.info(f"📋 Expected message format: JSON with 'type': 'landmarks' and 'data': [landmark_vectors]")
         
         try:
             async for message in websocket:
                 try:
-                    # JSON 메시지 처리
+                    # 메시지 타입 확인 (텍스트 또는 바이너리)
+                    if isinstance(message, bytes):
+                        # 바이너리 메시지 처리
+                        logger.warning(f"[{client_id}] 바이너리 메시지 수신됨 (길이: {len(message)} bytes) - 벡터 처리 모드에서는 지원하지 않음")
+                        # 클라이언트에게 바이너리 메시지가 지원되지 않음을 알림
+                        try:
+                            await websocket.send(json.dumps({
+                                "type": "error",
+                                "message": "바이너리 메시지는 지원되지 않습니다. JSON 형식의 랜드마크 데이터를 전송해주세요."
+                            }))
+                        except:
+                            pass
+                        continue
+                    
+                    # 텍스트 메시지 처리 (JSON)
+                    if self.debug_mode:
+                        logger.debug(f"[{client_id}] 메시지 수신: {message[:100]}...")
+                    
                     data = json.loads(message)
                     
                     if data.get("type") == "landmarks":
@@ -643,6 +661,8 @@ class SignClassifierWebSocketServer:
                         
                 except json.JSONDecodeError:
                     logger.warning(f"잘못된 JSON 메시지: {client_id}")
+                except UnicodeDecodeError as e:
+                    logger.warning(f"UTF-8 디코딩 오류 [{client_id}]: {e} - 바이너리 데이터가 텍스트로 전송됨")
                 except Exception as e:
                     logger.error(f"메시지 처리 실패 [{client_id}]: {e}")
                     # 에러 발생 시 클라이언트에게 알림
@@ -656,11 +676,18 @@ class SignClassifierWebSocketServer:
                     
         except websockets.exceptions.ConnectionClosed:
             logger.info(f"🔴 클라이언트 연결 종료: {client_id}")
+        except websockets.exceptions.ConnectionClosedError:
+            logger.info(f"🔴 클라이언트 연결 오류로 종료: {client_id}")
         except Exception as e:
             logger.error(f"클라이언트 처리 중 오류 [{client_id}]: {e}")
+            import traceback
+            logger.error(f"상세 오류 정보: {traceback.format_exc()}")
         finally:
-            self.clients.remove(websocket)
-            self.cleanup_client(client_id)
+            try:
+                self.clients.remove(websocket)
+                self.cleanup_client(client_id)
+            except Exception as cleanup_error:
+                logger.error(f"클라이언트 정리 중 오류 [{client_id}]: {cleanup_error}")
     
     async def run_server(self):
         """WebSocket 서버 실행"""
@@ -681,6 +708,7 @@ class SignClassifierWebSocketServer:
         logger.info(f"   - 예측 간격: {self.prediction_interval}벡터마다 예측")
         logger.info(f"   - TensorFlow XLA JIT: 활성화")
         logger.info(f"   - Performance profiling: {self.enable_profiling}")
+        logger.info(f"🔄 벡터 처리 모드 - JSON 랜드마크 데이터만 지원")
         logger.info(f"🏁 Starting server with optimized settings...")
         
         try:
@@ -730,6 +758,7 @@ def main():
     parser = argparse.ArgumentParser(description='Sign Classifier WebSocket Server (Vector Processing Mode)')
     parser.add_argument("--port", type=int, required=True, help="Port number for the server")
     parser.add_argument("--env", type=str, required=True, help="Environment variable model_info_URL")
+    parser.add_argument("--host", type=str, default="localhost", help="Host to bind the server to (default: localhost)")
     parser.add_argument("--log-level", type=str, default='INFO', 
                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'OFF'],
                        help="Set logging level (default: INFO, use OFF to disable all logs)")
@@ -743,6 +772,7 @@ def main():
     
     port = args.port
     model_info_url = args.env
+    host = args.host
     log_level = args.log_level
     debug_mode = args.debug
     prediction_interval = args.prediction_interval
@@ -800,10 +830,9 @@ def main():
         logger.info(f"✅ 로컬 모델 정보 파일 확인됨: {model_info_url_full}")
     
     # 서버 생성 및 실행
-    # localhost should be changed to the server's IP address when deploying to a server
     server = SignClassifierWebSocketServer(
         model_info_url_processed, 
-        host="localhost", 
+        host=host, 
         port=port, 
         debug_mode=debug_mode, 
         prediction_interval=prediction_interval, 
