@@ -110,8 +110,58 @@ class SignClassifierWebSocketServer:
         
         # 모델 로드
         try:
-            self.model = tf.keras.models.load_model(self.MODEL_SAVE_PATH)
-            logger.info(f"✅ 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+            # Keras 3와 tf-keras 호환성을 위한 모델 로딩
+            model_loaded = False
+            
+            # 방법 1: tf-keras로 시도
+            if not model_loaded:
+                try:
+                    self.model = tf.keras.models.load_model(self.MODEL_SAVE_PATH)
+                    logger.info(f"✅ tf-keras로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+                    model_loaded = True
+                except Exception as tf_error:
+                    logger.info(f"tf-keras 로딩 실패: {tf_error}")
+            
+            # 방법 2: keras로 시도
+            if not model_loaded:
+                try:
+                    import keras
+                    self.model = keras.models.load_model(self.MODEL_SAVE_PATH)
+                    logger.info(f"✅ keras로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+                    model_loaded = True
+                except Exception as keras_error:
+                    logger.info(f"keras 로딩 실패: {keras_error}")
+            
+            # 방법 3: tf-keras with compile=False
+            if not model_loaded:
+                try:
+                    self.model = tf.keras.models.load_model(self.MODEL_SAVE_PATH, compile=False)
+                    logger.info(f"✅ tf-keras (compile=False)로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+                    model_loaded = True
+                except Exception as compile_false_error:
+                    logger.info(f"tf-keras (compile=False) 로딩 실패: {compile_false_error}")
+            
+            # 방법 4: keras with compile=False
+            if not model_loaded:
+                try:
+                    import keras
+                    self.model = keras.models.load_model(self.MODEL_SAVE_PATH, compile=False)
+                    logger.info(f"✅ keras (compile=False)로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+                    model_loaded = True
+                except Exception as keras_compile_false_error:
+                    logger.info(f"keras (compile=False) 로딩 실패: {keras_compile_false_error}")
+            
+            # 방법 5: custom_objects 없이 시도
+            if not model_loaded:
+                try:
+                    self.model = tf.keras.models.load_model(self.MODEL_SAVE_PATH, custom_objects={})
+                    logger.info(f"✅ tf-keras (custom_objects={{}})로 모델 로드 성공: {self.MODEL_SAVE_PATH}")
+                    model_loaded = True
+                except Exception as custom_objects_error:
+                    logger.info(f"tf-keras (custom_objects={{}}) 로딩 실패: {custom_objects_error}")
+            
+            if not model_loaded:
+                raise Exception("모든 모델 로딩 방법이 실패했습니다.")
             
             # TensorFlow 성능 최적화 설정
             tf.config.optimizer.set_jit(True)  # XLA JIT 컴파일 활성화
@@ -602,17 +652,17 @@ class SignClassifierWebSocketServer:
         finally:
             self.client_states[client_id]["is_processing"] = False
     
-    async def handle_client(self, connection):
+    async def handle_client(self, websocket):
         """클라이언트 연결 처리"""
-        client_id = self.get_client_id(connection)
-        self.clients.add(connection)
+        client_id = self.get_client_id(websocket)
+        self.clients.add(websocket)
         self.initialize_client(client_id)
         
         logger.info(f"🟢 Vector processing client connected: {client_id}")
         logger.info(f"📋 Expected message format: JSON with 'type': 'landmarks' and 'data': [landmark_vectors]")
         
         try:
-            async for message in connection:
+            async for message in websocket:
                 try:
                     # 메시지 타입 확인 (텍스트 또는 바이너리)
                     if isinstance(message, bytes):
@@ -667,7 +717,7 @@ class SignClassifierWebSocketServer:
                     logger.error(f"메시지 처리 실패 [{client_id}]: {e}")
                     # 에러 발생 시 클라이언트에게 알림
                     try:
-                        await connection.send(json.dumps({
+                        await websocket.send(json.dumps({
                             "type": "error",
                             "message": "랜드마크 처리 중 오류가 발생했습니다."
                         }))
@@ -831,7 +881,14 @@ def main():
     
     # 서버 생성 및 실행
     # localhost should be changed to the server's IP address when deploying to a server
-    server = SignClassifierWebSocketServer(model_info_url_processed, host="0.0.0.0", port=port, debug_video=debug_video, frame_skip=frame_skip, prediction_interval=prediction_interval, max_frame_width=max_frame_width, enable_profiling=enable_profiling, aggressive_mode=aggressive_mode, accuracy_mode=accuracy_mode)
+    server = SignClassifierWebSocketServer(
+        model_info_url_processed, 
+        host="0.0.0.0", 
+        port=port,
+        debug_mode=debug_mode,
+        prediction_interval=prediction_interval,
+        enable_profiling=enable_profiling
+    )
     
     # 디버그 모드 활성화 시 알림
     if debug_mode:
