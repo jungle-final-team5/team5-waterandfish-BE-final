@@ -9,6 +9,36 @@ from ..db.session import get_db
 from bson import ObjectId
 from collections import defaultdict
 
+running_models = defaultdict(list)
+import signal
+def is_server_alive_by_pid(pid):
+    try:
+        if pid is None:
+            return False
+        # Windows
+        if os.name == 'nt':
+            import psutil
+            return psutil.pid_exists(pid)
+        # Unix
+        else:
+            os.kill(pid, 0)
+            return True
+    except Exception:
+        return False
+
+    # 관리 객체에서 죽은 서버 정보 정리
+def cleanup_dead_servers():
+    dead_ids = []
+    for model_id, process in list(model_server_manager.server_processes.items()):
+        pid = process.pid if process else None
+        if not is_server_alive_by_pid(pid):
+            dead_ids.append(model_id)
+    for model_id in dead_ids:
+        print(f"[CLEANUP] Removing dead server info for {model_id}")
+        running_models.pop(model_id, None)
+        model_server_manager.running_servers.pop(model_id, None)
+        model_server_manager.server_processes.pop(model_id, None)
+
 async def deploy_model(chapter_id, db=None, use_webrtc: bool = False):
     """챕터에 해당하는 모델 서버를 배포"""
     if db is None:
@@ -25,35 +55,6 @@ async def deploy_model(chapter_id, db=None, use_webrtc: bool = False):
     
     # 모델 데이터 URL이 있는 레슨 확인
     model_data_urls = [lesson.get("model_data_url") for lesson in lessons if lesson.get("model_data_url")]
-
-    import signal
-    def is_server_alive_by_pid(pid):
-        try:
-            if pid is None:
-                return False
-            # Windows
-            if os.name == 'nt':
-                import psutil
-                return psutil.pid_exists(pid)
-            # Unix
-            else:
-                os.kill(pid, 0)
-                return True
-        except Exception:
-            return False
-
-    # 관리 객체에서 죽은 서버 정보 정리
-    def cleanup_dead_servers():
-        dead_ids = []
-        for model_id, process in list(model_server_manager.server_processes.items()):
-            pid = process.pid if process else None
-            if not is_server_alive_by_pid(pid):
-                dead_ids.append(model_id)
-        for model_id in dead_ids:
-            print(f"[CLEANUP] Removing dead server info for {model_id}")
-            running_models.pop(model_id, None)
-            model_server_manager.running_servers.pop(model_id, None)
-            model_server_manager.server_processes.pop(model_id, None)
     cleanup_dead_servers()
 
     ws_urls = []

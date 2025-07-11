@@ -38,6 +38,7 @@ class SignClassifierWebSocketServer:
         self.debug_mode = debug_mode  # 디버그 모드
         self.enable_profiling = enable_profiling  # 성능 프로파일링 모드
         
+        
         # 성능 최적화 설정 (벡터 처리에 최적화)
         self.prediction_interval = prediction_interval  # N개 벡터마다 예측 실행
         

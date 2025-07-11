@@ -8,17 +8,19 @@ from typing import Dict, Optional
 from ..core.config import settings
 
 class ModelServerManager:
+    
     def __init__(self):
-        self.MODEL_PORT_BASE = 9000
+        self.MODEL_PORT_BASE = 9001
         self.running_servers: Dict[str, int] = {}  # {model_id: port}
         self.server_processes: Dict[str, subprocess.Popen] = {}  # {model_id: process}
         self.log_threads: Dict[str, threading.Thread] = {}  # {model_id: thread}
-    
+        self.count = 0
     async def start_model_server(self, model_id: str, model_data_url: str, use_webrtc: bool = False) -> str:
         """모델 서버를 시작하고 웹소켓 URL을 반환"""
+
         if model_id not in self.running_servers:
-            port = self.MODEL_PORT_BASE + len(self.running_servers) + 1
-            
+            port = self.MODEL_PORT_BASE + (self.count%100)
+            self.count = ((self.count+1)%100)
             # 모델 서버 프로세스 시작
             env = os.environ.copy()
             env["MODEL_DATA_URL"] = model_data_url
