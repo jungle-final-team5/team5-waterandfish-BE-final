@@ -18,14 +18,14 @@ jobs:
       with:
         python-version: '3.12'
 
+    - name: Install poetry
+      run: pip install poetry
+
     - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-asyncio python-dotenv httpx motor
+      run: poetry install
 
     - name: Copy .env for test
       run: cp .env.ci .env
 
     - name: Run tests
-      run: pytest
+      run: poetry run pytest
