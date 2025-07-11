@@ -1,10 +1,13 @@
 import os
 import subprocess
-from collections import defaultdict
+# running_models: model_id(str) -> ws_url(str)
+running_models = dict()
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from ..core.config import settings
 from .model_server_manager import ModelServerManager, model_server_manager
 from ..db.session import get_db
+from bson import ObjectId
+from collections import defaultdict
 
 running_models = defaultdict(list)
 import signal
@@ -35,7 +38,8 @@ def cleanup_dead_servers():
         running_models.pop(model_id, None)
         model_server_manager.running_servers.pop(model_id, None)
         model_server_manager.server_processes.pop(model_id, None)
-async def deploy_model(chapter_id, db: AsyncIOMotorDatabase = None, use_webrtc: bool = False):
+
+async def deploy_model(chapter_id, db=None, use_webrtc: bool = False):
     """챕터에 해당하는 모델 서버를 배포"""
     if db is None:
         # db가 없으면 새로 가져오기 (이상적으로는 의존성 주입 사용)
@@ -51,11 +55,10 @@ async def deploy_model(chapter_id, db: AsyncIOMotorDatabase = None, use_webrtc: 
     
     # 모델 데이터 URL이 있는 레슨 확인
     model_data_urls = [lesson.get("model_data_url") for lesson in lessons if lesson.get("model_data_url")]
-
-    
     cleanup_dead_servers()
 
     ws_urls = []
+    import re
     for model_data_url in model_data_urls:
         model_id = model_data_url
         server_alive = False
@@ -96,5 +99,29 @@ async def deploy_model(chapter_id, db: AsyncIOMotorDatabase = None, use_webrtc: 
     for lesson in lessons:
         lesson_mapper[str(lesson["_id"])] = running_models[lesson["model_data_url"]]
     print('[ml_service]lesson_mapper', lesson_mapper)
-    
     return ws_urls, lesson_mapper
+
+# 단일 레슨 모델 서버 배포
+async def deploy_lesson_model(lesson_id, db=None, use_webrtc: bool = False):
+    from bson import ObjectId
+    if db is None:
+        db = await get_db().__anext__()
+    obj_id = ObjectId(lesson_id)
+    lesson = await db.Lessons.find_one({"_id": obj_id})
+    if not lesson:
+        raise Exception(f"Lesson with id {lesson_id} not found")
+    model_data_url = lesson.get("model_data_url")
+    if not model_data_url:
+        raise Exception(f"Lesson {lesson_id} does not have a model_data_url")
+    model_id = model_data_url
+    import re
+    if model_id in running_models:
+        ws_url = running_models[model_id]
+    else:
+        ws_url = await model_server_manager.start_model_server(model_id, model_data_url, use_webrtc)
+        running_models[model_id] = ws_url
+        match = re.search(r":(\d+)/ws", ws_url)
+        if match:
+            port = int(match.group(1))
+            model_server_manager.running_servers[model_id] = port
+    return ws_url
