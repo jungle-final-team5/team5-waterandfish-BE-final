@@ -340,7 +340,7 @@ async def update_chapter_lessons_progress(
 
 
 
-@router.get("chapters/{chapter_id}/lessons")
+@router.get("/chapters/{chapter_id}/lessons")
 async def get_chapter_lessons_progress(
     chapter_id: str,
     request: Request,
