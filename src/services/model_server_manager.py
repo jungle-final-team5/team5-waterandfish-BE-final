@@ -20,7 +20,7 @@ class ModelServerManager:
 
         if model_id not in self.running_servers:
             port = self.MODEL_PORT_BASE + (self.count%100)
-            self.count += (self.count+1%100)
+            self.count += ((self.count+1)%100)
             # 모델 서버 프로세스 시작
             env = os.environ.copy()
             env["MODEL_DATA_URL"] = model_data_url
