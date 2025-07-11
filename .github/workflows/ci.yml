@@ -18,6 +18,12 @@ jobs:
       with:
         python-version: '3.12'
 
+    - name: Install poetry
+      run: pip install poetry
+
+    - name: Install dependencies
+      run: poetry install
+
 
     - name: Run tests
       run: poetry run pytest
