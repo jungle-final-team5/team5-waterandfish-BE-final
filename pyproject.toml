@@ -43,7 +43,6 @@ tf-keras = "^2.19.0"
 pytest = "^8.0.0"
 pytest-asyncio = "^1.0.0"
 python-dotenv = "^1.0.0"
-httpx = "^0.28.0"
 
 [tool.poetry.group.dev.dependencies]
 python-jose = "^3.5.0"
