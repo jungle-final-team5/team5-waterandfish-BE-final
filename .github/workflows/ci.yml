@@ -24,8 +24,6 @@ jobs:
     - name: Install dependencies
       run: poetry install
 
-    - name: Copy .env for test
-      run: cp .env
 
     - name: Run tests
       run: poetry run pytest
