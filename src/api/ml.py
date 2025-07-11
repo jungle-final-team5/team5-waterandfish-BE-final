@@ -5,6 +5,7 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..db.session import get_db
 from ..services.ml_service import deploy_model
+from ..services.ml_service import deploy_lesson_model
 from .utils import get_user_id_from_token, require_auth, convert_objectid
 
 router = APIRouter(prefix="/ml", tags=["ml"])
@@ -67,6 +68,32 @@ async def deploy_chapter_model(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"모델 서버 배포 실패: {str(e)}"
+        )
+
+
+@router.get("/deploy/lesson/{lesson_id}")
+async def deploy_lesson_model_api(
+    lesson_id: str,
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    use_webrtc: bool = False
+):
+    """단일 레슨에 해당하는 모델 서버를 배포하고 WebSocket URL 반환"""
+    user_id = require_auth(request)
+    try:
+        ws_url = await deploy_lesson_model(lesson_id, db, use_webrtc)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "data": {"ws_url": ws_url},
+                "message": "레슨 모델 서버 배포 완료"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"레슨 모델 서버 배포 실패: {str(e)}"
         )
 
 
