@@ -89,13 +89,19 @@ async def initialize_chapter_progress(
     
     # 하위 레슨 진도도 초기화
     lessons = await db.Lessons.find({"chapter_id": chapter_obj_id}).to_list(length=None)
-    progress_bulk = [{
-        "user_id": ObjectId(user_id),
-        "lesson_id": lesson["_id"],
-        "status": "not_started",
-        "updated_at": datetime.utcnow()
-    } for lesson in lessons]
-    
+    progress_bulk = []
+    for lesson in lessons:
+        exists = await db.User_Lesson_Progress.find_one({
+            "user_id": ObjectId(user_id),
+            "lesson_id": lesson["_id"]
+        })
+        if not exists:
+            progress_bulk.append({
+                "user_id": ObjectId(user_id),
+                "lesson_id": lesson["_id"],
+                "status": "not_started",
+                "updated_at": datetime.utcnow()
+            })
     if progress_bulk:
         await db.User_Lesson_Progress.insert_many(progress_bulk)
     
