@@ -7,6 +7,7 @@ from ..core.config import settings
 from .model_server_manager import ModelServerManager, model_server_manager
 from ..db.session import get_db
 from bson import ObjectId
+from collections import defaultdict
 
 async def deploy_model(chapter_id, db=None, use_webrtc: bool = False):
     """챕터에 해당하는 모델 서버를 배포"""
