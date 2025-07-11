@@ -253,29 +253,20 @@ async def get_recent_learning(
         "message": "최근 학습 있음"
     }
 
-# 실패한 레슨 조회
-@router.get("/failures/{username}")
-async def get_failed_lessons_by_username(
-    username: str,
+
+# 실패한 레슨 조회 (쿠키/토큰에서 user_id 추출)
+@router.get("/failures/me")
+async def get_failed_lessons_by_me(
+    request: Request,
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
-    """사용자별 실패한 레슨 조회"""
-    # username으로 user 찾기
-    user = await db.users.find_one({"nickname": username})
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail="User not found"
-        )
-    
-    user_id = user["_id"]
-    
+    """내 실패한 레슨 조회 (쿠키/토큰 기반)"""
+    user_id = require_auth(request)
     # 해당 user_id로 실패한 progress 조회
-    failed_progresses = await db.Progress.find({
-        "user_id": user_id,
-        "status": "fail"
+    failed_progresses = await db.User_Lesson_Progress.find({
+        "user_id": ObjectId(user_id),
+        "status": "quiz_wrong"
     }).to_list(length=None)
-    
     # lesson_id 목록 추출
     lesson_ids = [p["lesson_id"] for p in failed_progresses]
     if not lesson_ids:
@@ -284,24 +275,19 @@ async def get_failed_lessons_by_username(
             "data": [],
             "message": "실패한 레슨 없음"
         }
-    
     # lesson_id로 Lessons 조회
     lessons = await db.Lessons.find({
         "_id": {"$in": lesson_ids}
     }).to_list(length=None)
-    
     # 각 레슨에 category 이름과 word 필드 추가
     for lesson in lessons:
         # chapter 정보 가져오기
         chapter = await db.Chapters.find_one({"_id": lesson["chapter_id"]})
         category = await db.Category.find_one({"_id": chapter["category_id"]}) if chapter else None
-        
         # category 이름 추가
         lesson["category"] = category["name"] if category else "Unknown"
-        
         # word 필드에 sign을 복사
         lesson["word"] = lesson.get("sign_text", "")
-    
     return {
         "success": True,
         "data": convert_objectid(lessons),
