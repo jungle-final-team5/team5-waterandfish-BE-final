@@ -312,8 +312,13 @@ async def delete_account(
     
     # 유저 삭제
     result = await db.users.delete_one({"_id": object_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=500, detail="계정 삭제에 실패했습니다.")
+    # 관련 progress 및 활동 데이터도 모두 삭제
+    await db.users_badge.delete_many({"user_id": object_id})
+    await db.user_daily_activity.delete_many({"user_id": object_id})
+    await db.User_Lesson_Progress.delete_many({"user_id": object_id})
+    await db.User_Chapter_Progress.delete_many({"user_id": object_id})
+    await db.User_Category_Progress.delete_many({"user_id": object_id})
+    await db.Progress.delete_many({"user_id": object_id})
     
     response = JSONResponse(content={"message": "계정이 성공적으로 삭제되었습니다."})
     response.delete_cookie("access_token", path="/")
@@ -344,16 +349,6 @@ async def signup(signup_data: SignupRequest, db: AsyncIOMotorDatabase = Depends(
     }
     
     result = await db.users.insert_one(new_user)
-    lessons = await db.Lessons.find().to_list(length=None)
-    progress_bulk = [{
-        "user_id": result.inserted_id,
-        "lesson_id": lesson["_id"],
-        "status": "not_started",
-        "updated_at": datetime.utcnow()
-    } for lesson in lessons]
-
-    if progress_bulk:
-        await db.Progress.insert_many(progress_bulk)
     new_user["_id"] = str(result.inserted_id)
     
     # 토큰 생성
