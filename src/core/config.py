@@ -37,9 +37,13 @@ class Settings(BaseSettings):
 
     MODEL_SERVER_HOST: str = Field("localhost", env="MODEL_SERVER_HOST")
     
+    test_mongo_uri: str = None
+    test_db_name: str = None
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "allow"  # (pydantic v2에서는 없어도 무방, 있으면 unknown 필드 허용)
 
     @property
     def cors_origins_list(self) -> List[str]:
