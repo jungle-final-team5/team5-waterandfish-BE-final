@@ -312,6 +312,48 @@ async def get_failed_lessons_by_me(
         "message": "실패한 레슨 조회 성공"
     }
 
+@router.get("/failures/{chapter_id}")
+async def get_failed_lessons_with_chapterId(
+    chapter_id: str,
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """내 실패한 레슨 조회 (챕터ID 기반)"""
+    # 1. 사용자 인증
+    user_id = require_auth(request)
+
+    # 2. chapter_id 유효성 검사
+    try:
+        chapter_obj_id = ObjectId(chapter_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid chapter ID"
+        )
+
+    # 3. 해당 챕터의 모든 레슨 조회
+    lessons = await db.Lessons.find({"chapter_id": chapter_obj_id}).to_list(length=None)
+    if not lessons:
+        return {"success": True, "data": [], "message": "실패한 레슨 없음"}
+
+    # 4. progress에서 user_id + lesson_id ∈ lessons + status='quiz_wrong' 필터링
+    lesson_ids = [lesson["_id"] for lesson in lessons]
+    failed_progress = await db.User_Lesson_Progress.find({
+        "user_id": ObjectId(user_id),
+        "lesson_id": {"$in": lesson_ids},
+        "status": "quiz_wrong"
+    }).to_list(length=None)
+
+    # 5. 교집합: lessons 중 progress에 있는 아이디만 남김
+    failed_ids = {p["lesson_id"] for p in failed_progress}
+    failed_lessons = [lesson for lesson in lessons if lesson["_id"] in failed_ids]
+
+    return {
+        "success": True,
+        "data": convert_objectid(failed_lessons),
+        "message": "실패한 레슨 조회 성공"
+    }
+
 @router.post("/chapters/{chapter_id}/lessons")
 async def update_chapter_lessons_progress(
     chapter_id: str,
