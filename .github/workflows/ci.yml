@@ -28,4 +28,5 @@ jobs:
       env:
         TEST_MONGO_URI: ${{ secrets.TEST_MONGO_URI }}
         TEST_DB_NAME: ${{ secrets.TEST_DB_NAME }}
+        MONGODB_URL: ${{ secrets.TEST_MONGO_URI }}
       run: poetry run pytest
