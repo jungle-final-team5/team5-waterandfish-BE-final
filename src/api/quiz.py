@@ -9,7 +9,14 @@ from .utils import get_user_id_from_token, require_auth, convert_objectid
 router = APIRouter(prefix="/quiz", tags=["quiz"])
 
 
-
+# 오늘 활동 기록 함수
+async def mark_today_activity(user_id, db):
+    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    await db.user_daily_activity.update_one(
+        {"user_id": ObjectId(user_id), "activity_date": today},
+        {"$set": {"has_activity": True, "updated_at": datetime.utcnow()}},
+        upsert=True
+    )
 
 
 # /quiz/chapter/:chapterId 라우트용
@@ -224,6 +231,9 @@ async def submit_chapter_quiz(
     # 통계 계산
     correct_count = sum(1 for result in data.get("results", []) if result.get("correct"))
     wrong_count = len(data.get("results", [])) - correct_count
+    
+    # 퀴즈 결과 처리 후 학습 활동 기록
+    await mark_today_activity(user_id, db)
     
     return {
         "success": True,

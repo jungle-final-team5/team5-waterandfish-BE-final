@@ -9,6 +9,14 @@ from .utils import get_user_id_from_token, require_auth, convert_objectid
 router = APIRouter(prefix="/progress", tags=["progress"])
 
 
+# 오늘 활동 기록 함수
+async def mark_today_activity(user_id, db):
+    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    await db.user_daily_activity.update_one(
+        {"user_id": ObjectId(user_id), "activity_date": today},
+        {"$set": {"has_activity": True, "updated_at": datetime.utcnow()}},
+        upsert=True
+    )
 
 # 카테고리 프로그레스
 @router.post("/categories/{category_id}")
@@ -126,6 +134,8 @@ async def update_lesson_events(
         {"user_id": ObjectId(user_id), "lesson_id": {"$in": lesson_ids}},
         {"$set": {"last_event_at": datetime.utcnow()}}
     )
+    # 학습 활동 기록
+    await mark_today_activity(user_id, db)
     return {
         "success": True,
         "message": "last_event_at 업데이트 완료"
@@ -335,6 +345,8 @@ async def update_chapter_lessons_progress(
                 }
             }
         )
+    # 학습 활동 기록
+    await mark_today_activity(user_id, db)
     return {
         "success": True,
         "message": "학습 진행 상태 업데이트 완료"
