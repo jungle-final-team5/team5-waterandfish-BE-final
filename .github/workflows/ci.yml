@@ -24,6 +24,8 @@ jobs:
     - name: Install dependencies
       run: poetry install
 
-
     - name: Run tests
+      env:
+        TEST_MONGO_URI: ${{ secrets.TEST_MONGO_URI }}
+        TEST_DB_NAME: ${{ secrets.TEST_DB_NAME }}
       run: poetry run pytest

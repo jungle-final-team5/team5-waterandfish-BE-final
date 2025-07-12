@@ -37,8 +37,8 @@ class Settings(BaseSettings):
 
     MODEL_SERVER_HOST: str = Field("localhost", env="MODEL_SERVER_HOST")
     
-    test_mongo_uri: str = None
-    test_db_name: str = None
+    test_mongo_uri: str = Field(default="", env="TEST_MONGO_URI")
+    test_db_name: str = Field(default="", env="TEST_DB_NAME")
 
     class Config:
         env_file = ".env"

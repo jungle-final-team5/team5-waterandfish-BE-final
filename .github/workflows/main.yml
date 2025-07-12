@@ -25,6 +25,9 @@ jobs:
           ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
       - name: Deploy to EC2
+        env:
+          TEST_MONGO_URI: ${{ secrets.TEST_MONGO_URI }}
+          TEST_DB_NAME: ${{ secrets.TEST_DB_NAME }}
         run: |
           ssh ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }} << 'EOF'
             set -e
