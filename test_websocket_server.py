@@ -8,7 +8,9 @@ import asyncio
 import websockets
 import json
 import numpy as np
+import pytest
 
+@pytest.mark.asyncio
 async def test_websocket_server():
     """Test the WebSocket server with proper JSON messages"""
     
@@ -59,12 +61,13 @@ async def test_websocket_server():
             
             print("\n✅ All tests completed successfully!")
             
-    except websockets.exceptions.ConnectionRefused:
+    except OSError:
         print(f"❌ Could not connect to {uri}")
         print("Make sure the WebSocket server is running on the specified port.")
     except Exception as e:
         print(f"❌ Error during testing: {e}")
 
+@pytest.mark.asyncio
 async def test_binary_message():
     """Test sending binary message to see if it causes the UTF-8 error"""
     

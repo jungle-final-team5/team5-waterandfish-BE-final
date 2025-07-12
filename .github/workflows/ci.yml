@@ -1,0 +1,32 @@
+name: Python CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install poetry
+      run: pip install poetry
+
+    - name: Install dependencies
+      run: poetry install
+
+    - name: Run tests
+      env:
+        TEST_MONGO_URI: ${{ secrets.TEST_MONGO_URI }}
+        TEST_DB_NAME: ${{ secrets.TEST_DB_NAME }}
+        MONGODB_URL: ${{ secrets.TEST_MONGO_URI }}
+      run: poetry run pytest
