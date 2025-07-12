@@ -9,7 +9,14 @@ from .utils import get_user_id_from_token, require_auth, convert_objectid
 router = APIRouter(prefix="/review", tags=["review"])
 
 
-
+# 오늘 활동 기록 함수
+async def mark_today_activity(user_id, db):
+    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    await db.user_daily_activity.update_one(
+        {"user_id": ObjectId(user_id), "activity_date": today},
+        {"$set": {"has_activity": True, "updated_at": datetime.utcnow()}},
+        upsert=True
+    )
 
 
 # /review 라우트용
@@ -129,6 +136,8 @@ async def mark_as_reviewed(
             }
         )
     
+    # 복습 활동 기록
+    await mark_today_activity(user_id, db)
     return {
         "success": True,
         "message": "리뷰 완료로 표시되었습니다"
