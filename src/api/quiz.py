@@ -165,55 +165,73 @@ async def submit_chapter_quiz(
             detail="Invalid chapter ID"
         )
     
-    correct_ids = []
-    wrong_ids = []
-    
+    # 개별 레슨별로 상태 업데이트
     for result in data.get("results", []):
         lesson_id = ObjectId(result.get("lessonId"))
         correct = result.get("correct")
-        if correct:
-            correct_ids.append(lesson_id)
-        else:
-            wrong_ids.append(lesson_id)
+        time_spent = result.get("timeSpent", 0)
+        
+        # 맞은 레슨은 reviewed, 틀린 레슨은 quiz_wrong
+        status = "reviewed" if correct else "quiz_wrong"
+        
+        await db.User_Lesson_Progress.update_one(
+            {
+                "user_id": ObjectId(user_id),
+                "lesson_id": lesson_id
+            },
+            {
+                "$set": {
+                    "status": status,
+                    "updated_at": datetime.utcnow(),
+                    "last_event_at": datetime.utcnow(),
+                    "quiz_time_spent": time_spent
+                }
+            },
+            upsert=True
+        )
     
-    # 퀴즈 결과에 따른 상태 업데이트
-    if correct_ids and not wrong_ids:
-        # 모두 정답인 경우
-        await db.User_Lesson_Progress.update_many(
-            {
-                "user_id": ObjectId(user_id),
-                "lesson_id": {"$in": correct_ids}
-            },
-            {
-                "$set": {
-                    "status": "quiz_correct",
-                    "updated_at": datetime.utcnow(),
-                    "last_event_at": datetime.utcnow()
-                }
-            }
-        )
-    elif wrong_ids:
-        # 오답이 있는 경우
-        await db.User_Lesson_Progress.update_many(
-            {
-                "user_id": ObjectId(user_id),
-                "lesson_id": {"$in": correct_ids + wrong_ids}
-            },
-            {
-                "$set": {
-                    "status": "quiz_wrong",
-                    "updated_at": datetime.utcnow(),
-                    "last_event_at": datetime.utcnow()
-                }
-            }
-        )
+    # 챕터의 모든 레슨이 reviewed 상태인지 확인
+    chapter_lessons = await db.Lessons.find({"chapter_id": obj_id}).to_list(length=None)
+    lesson_ids = [lesson["_id"] for lesson in chapter_lessons]
+    
+    all_reviewed = False
+    if lesson_ids:
+        progresses = await db.User_Lesson_Progress.find({
+            "user_id": ObjectId(user_id),
+            "lesson_id": {"$in": lesson_ids}
+        }).to_list(length=None)
+        
+        # 모든 레슨이 reviewed 상태인지 확인
+        all_reviewed = all(progress.get("status") == "reviewed" for progress in progresses)
+        
+        if all_reviewed:
+            # 챕터 완료 상태 업데이트
+            await db.User_Chapter_Progress.update_one(
+                {
+                    "user_id": ObjectId(user_id),
+                    "chapter_id": obj_id
+                },
+                {
+                    "$set": {
+                        "complete": True,
+                        "complete_at": datetime.utcnow(),
+                        "updated_at": datetime.utcnow()
+                    }
+                },
+                upsert=True
+            )
+    
+    # 통계 계산
+    correct_count = sum(1 for result in data.get("results", []) if result.get("correct"))
+    wrong_count = len(data.get("results", [])) - correct_count
     
     return {
         "success": True,
         "data": {
-            "correct_count": len(correct_ids),
-            "wrong_count": len(wrong_ids),
-            "total_count": len(correct_ids) + len(wrong_ids)
+            "correct_count": correct_count,
+            "wrong_count": wrong_count,
+            "total_count": len(data.get("results", [])),
+            "chapter_completed": all_reviewed
         },
         "message": "퀴즈 결과 제출 완료"
     } 
