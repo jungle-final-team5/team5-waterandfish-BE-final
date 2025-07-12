@@ -9,6 +9,14 @@ from .utils import get_user_id_from_token, require_auth, convert_objectid
 router = APIRouter(prefix="/progress", tags=["progress"])
 
 
+# 오늘 활동 기록 함수
+async def mark_today_activity(user_id, db):
+    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    await db.user_daily_activity.update_one(
+        {"user_id": ObjectId(user_id), "activity_date": today},
+        {"$set": {"has_activity": True, "updated_at": datetime.utcnow()}},
+        upsert=True
+    )
 
 # 카테고리 프로그레스
 @router.post("/categories/{category_id}")
@@ -126,6 +134,8 @@ async def update_lesson_events(
         {"user_id": ObjectId(user_id), "lesson_id": {"$in": lesson_ids}},
         {"$set": {"last_event_at": datetime.utcnow()}}
     )
+    # 학습 활동 기록
+    await mark_today_activity(user_id, db)
     return {
         "success": True,
         "message": "last_event_at 업데이트 완료"
@@ -285,7 +295,7 @@ async def get_failed_lessons_by_me(
     lessons = await db.Lessons.find({
         "_id": {"$in": lesson_ids}
     }).to_list(length=None)
-    # 각 레슨에 category 이름과 word 필드 추가
+    # 각 레슨에 category 이름, word, chapter_title 필드 추가
     for lesson in lessons:
         # chapter 정보 가져오기
         chapter = await db.Chapters.find_one({"_id": lesson["chapter_id"]})
@@ -294,9 +304,53 @@ async def get_failed_lessons_by_me(
         lesson["category"] = category["name"] if category else "Unknown"
         # word 필드에 sign을 복사
         lesson["word"] = lesson.get("sign_text", "")
+        # chapter_title 추가
+        lesson["chapter_title"] = chapter["title"] if chapter else ""
     return {
         "success": True,
         "data": convert_objectid(lessons),
+        "message": "실패한 레슨 조회 성공"
+    }
+
+@router.get("/failures/{chapter_id}")
+async def get_failed_lessons_with_chapterId(
+    chapter_id: str,
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """내 실패한 레슨 조회 (챕터ID 기반)"""
+    # 1. 사용자 인증
+    user_id = require_auth(request)
+
+    # 2. chapter_id 유효성 검사
+    try:
+        chapter_obj_id = ObjectId(chapter_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid chapter ID"
+        )
+
+    # 3. 해당 챕터의 모든 레슨 조회
+    lessons = await db.Lessons.find({"chapter_id": chapter_obj_id}).to_list(length=None)
+    if not lessons:
+        return {"success": True, "data": [], "message": "실패한 레슨 없음"}
+
+    # 4. progress에서 user_id + lesson_id ∈ lessons + status='quiz_wrong' 필터링
+    lesson_ids = [lesson["_id"] for lesson in lessons]
+    failed_progress = await db.User_Lesson_Progress.find({
+        "user_id": ObjectId(user_id),
+        "lesson_id": {"$in": lesson_ids},
+        "status": "quiz_wrong"
+    }).to_list(length=None)
+
+    # 5. 교집합: lessons 중 progress에 있는 아이디만 남김
+    failed_ids = {p["lesson_id"] for p in failed_progress}
+    failed_lessons = [lesson for lesson in lessons if lesson["_id"] in failed_ids]
+
+    return {
+        "success": True,
+        "data": convert_objectid(failed_lessons),
         "message": "실패한 레슨 조회 성공"
     }
 
@@ -333,6 +387,8 @@ async def update_chapter_lessons_progress(
                 }
             }
         )
+    # 학습 활동 기록
+    await mark_today_activity(user_id, db)
     return {
         "success": True,
         "message": "학습 진행 상태 업데이트 완료"
@@ -369,4 +425,56 @@ async def get_chapter_lessons_progress(
         "success": True,
         "data": convert_objectid(lessons),
         "message": "레슨 학습 진행 상태 조회 성공"
+    }
+
+@router.get("/chapters/{chapter_id}/failures")
+async def get_chapter_failed_lessons(
+    chapter_id: str,
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """특정 챕터 내 틀린(quiz_wrong) 레슨만 반환"""
+    user_id = require_auth(request)
+    try:
+        obj_id = ObjectId(chapter_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid chapter ID"
+        )
+    # 1. 해당 챕터의 모든 레슨 id 조회
+    lessons = await db.Lessons.find({"chapter_id": obj_id}).to_list(length=None)
+    lesson_ids = [lesson["_id"] for lesson in lessons]
+    if not lesson_ids:
+        return {"success": True, "data": [], "message": "해당 챕터에 레슨이 없습니다"}
+    # 2. User_Lesson_Progress에서 user_id, lesson_id in (위 id들), status == "quiz_wrong" 필터
+    progresses = await db.User_Lesson_Progress.find({
+        "user_id": ObjectId(user_id),
+        "lesson_id": {"$in": lesson_ids},
+        "status": "quiz_wrong"
+    }).to_list(length=None)
+    progress_map = {p["lesson_id"]: p for p in progresses}
+    # 3. 해당 레슨 정보 + 진행상태 반환
+    chapter = await db.Chapters.find_one({"_id": obj_id})
+    category = await db.Category.find_one({"_id": chapter["category_id"]}) if chapter else None
+    failed_lessons = []
+    for lesson in lessons:
+        p = progress_map.get(lesson["_id"])
+        if not p:
+            continue
+        failed_lessons.append({
+            "id": str(lesson["_id"]),
+            "word": lesson.get("sign_text", ""),
+            "videoUrl": lesson.get("media_url", ""),
+            "description": lesson.get("description", ""),
+            "status": p.get("status", "not_started"),
+            "last_event_at": p.get("last_event_at"),
+            "updated_at": p.get("updated_at"),
+            "chapter_title": chapter["title"] if chapter else "",
+            "category_name": category["name"] if category else "Unknown"
+        })
+    return {
+        "success": True,
+        "data": failed_lessons,
+        "message": "챕터 내 틀린 레슨 조회 성공"
     }
