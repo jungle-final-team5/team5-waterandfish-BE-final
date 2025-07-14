@@ -128,9 +128,13 @@ async def update_lesson_events(
     user_id = require_auth(request)  # 토큰에서 user_id 추출
     data = await request.json()
     lesson_ids = [ObjectId(lid) for lid in data.get("lesson_ids", [])]
+    mode = data.get("mode")  # 예: 'study', 'quiz', 'review'
+    update_fields = {"last_event_at": datetime.utcnow()}
+    if mode:
+        update_fields["last_mode"] = mode
     await db.User_Lesson_Progress.update_many(
         {"user_id": ObjectId(user_id), "lesson_id": {"$in": lesson_ids}},
-        {"$set": {"last_event_at": datetime.utcnow()}}
+        {"$set": update_fields}
     )
     # 학습 활동 기록
     await mark_today_activity(user_id, db)
@@ -223,47 +227,49 @@ async def get_recent_learning(
 ):
     """최근 학습 조회"""
     user_id = require_auth(request)
-    
     progress = await db.User_Lesson_Progress.find({
         "user_id": ObjectId(user_id)
     }).sort("last_event_at", -1).limit(1).to_list(length=1)
-    
     if not progress:
         return {
             "success": True,
-            "data": {"category": None, "chapter": None},
+            "data": {"category": None, "chapter": None, "chapterId": None, "modeNum": None},
             "message": "최근 학습 없음"
         }
-    
     lesson_id = progress[0]["lesson_id"]
+    last_mode = progress[0].get("last_mode") or progress[0].get("status")  # 예시: 'study', 'quiz', 'review'
     lesson = await db.Lessons.find_one({"_id": lesson_id})
-    
     if not lesson:
         return {
             "success": True,
-            "data": {"category": None, "chapter": None},
+            "data": {"category": None, "chapter": None, "chapterId": None, "modeNum": None},
             "message": "최근 학습 없음"
         }
-    
     chapter = await db.Chapters.find_one({"_id": lesson["chapter_id"]})
     if not chapter:
         return {
             "success": True,
-            "data": {"category": None, "chapter": None},
+            "data": {"category": None, "chapter": None, "chapterId": None, "modeNum": None},
             "message": "최근 학습 없음"
         }
-    
     category = await db.Category.find_one({"_id": chapter["category_id"]})
     if not category:
         return {
             "success": True,
-            "data": {"category": None, "chapter": chapter["title"]},
+            "data": {"category": None, "chapter": chapter["title"], "chapterId": str(chapter["_id"]), "modeNum": None},
             "message": "최근 학습 있음"
         }
-    
+    # modeNum 매핑
+    mode_map = {"study": 1, "quiz": 2, "review": 3}
+    mode_num = mode_map.get(last_mode, 1)  # 기본값 1(학습)
     return {
         "success": True,
-        "data": {"category": category["name"], "chapter": chapter["title"]},
+        "data": {
+            "category": category["name"],
+            "chapter": chapter["title"],
+            "chapterId": str(chapter["_id"]),
+            "modeNum": mode_num
+        },
         "message": "최근 학습 있음"
     }
 
