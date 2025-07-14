@@ -104,6 +104,7 @@ async def deploy_model(chapter_id, db=None, use_webrtc: bool = False):
 # 단일 레슨 모델 서버 배포
 async def deploy_lesson_model(lesson_id, db=None, use_webrtc: bool = False):
     from bson import ObjectId
+    cleanup_dead_servers()
     if db is None:
         db = await get_db().__anext__()
     obj_id = ObjectId(lesson_id)
