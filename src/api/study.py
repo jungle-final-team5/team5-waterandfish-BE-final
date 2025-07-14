@@ -51,7 +51,17 @@ async def start_letter_study(
     chapter_id = chapter_doc["_id"]
     letters = await db.Lessons.find({"chapter_id": chapter_id}).to_list(length=None)
     letter_ids = [lesson["_id"] for lesson in letters]
-    
+
+    # User_Lesson_Progress에서 not_started만 study로 변경
+    await db.User_Lesson_Progress.update_many(
+        {
+            "user_id": ObjectId(user_id),
+            "lesson_id": {"$in": letter_ids},
+            "status": "not_started"
+        },
+        {"$set": {"status": "study", "updated_at": datetime.utcnow()}}
+    )
+
     return JSONResponse(
         status_code=status.HTTP_201_CREATED, 
         content={"success": True, "message": "study started"}
