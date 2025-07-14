@@ -109,38 +109,59 @@ async def get_review_page(
         "message": "리뷰 페이지 조회 성공"
     }
 
-# 리뷰 상태 업데이트
-@router.post("/mark-reviewed")
+@router.post("/mark/{lesson_id}")
 async def mark_as_reviewed(
+    lesson_id: str,
     request: Request,
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     """레슨을 리뷰 완료로 표시"""
     user_id = require_auth(request)
-    data = await request.json()
-    
-    lesson_ids = [ObjectId(lid) for lid in data.get("lesson_ids", [])]
-    
-    if lesson_ids:
-        await db.User_Lesson_Progress.update_many(
-            {
-                "user_id": ObjectId(user_id),
-                "lesson_id": {"$in": lesson_ids}
-            },
-            {
-                "$set": {
-                    "status": "reviewed",
-                    "updated_at": datetime.utcnow(),
-                    "last_event_at": datetime.utcnow()
-                }
-            }
+    try:
+        lesson_obj_id = ObjectId(lesson_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid lesson ID"
         )
-    
-    # 복습 활동 기록
+
+    # 1. 해당 user_id와 lesson_id에 매칭되는 progress 조회
+    progress = await db.User_Lesson_Progress.find_one({
+        "user_id": ObjectId(user_id),
+        "lesson_id": lesson_obj_id
+    })
+    if not progress:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="해당 레슨 진행 정보를 찾을 수 없습니다."
+        )
+
+    # 2. 상태 업데이트
+    result = await db.User_Lesson_Progress.update_one(
+        {
+            "user_id": ObjectId(user_id),
+            "lesson_id": lesson_obj_id
+        },
+        {
+            "$set": {
+                "status": "reviewed",
+                "updated_at": datetime.utcnow(),
+                "last_event_at": datetime.utcnow()
+            }
+        }
+    )
+    if result.modified_count != 1:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="진행 상태 업데이트에 실패했습니다."
+        )
+
+    # 3. 오늘 활동 기록
     await mark_today_activity(user_id, db)
+
     return {
         "success": True,
-        "message": "리뷰 완료로 표시되었습니다"
+        "message": "레뷰 완료로 표시되었습니다"
     }
 
 # 리뷰 통계
