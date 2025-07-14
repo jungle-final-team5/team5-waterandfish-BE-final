@@ -692,6 +692,29 @@ class SignClassifierWebSocketServer:
                         else:
                             logger.warning(f"[{client_id}] 빈 랜드마크 데이터")
 
+                    elif data.get("type") == "landmarks_sequence":
+                        sequence_data = data.get("data")
+                        if sequence_data and "sequence" in sequence_data:
+                            sequence = sequence_data["sequence"]
+                            frame_count = sequence_data.get("frame_count", len(sequence))
+                            timestamp = sequence_data.get("timestamp", asyncio.get_event_loop().time())
+                            
+                            logger.info(f"[{client_id}] 랜드마크 시퀀스 수신: {frame_count}개 프레임")
+                            
+                            # 시퀀스의 각 프레임을 처리
+                            for i, landmarks_data in enumerate(sequence):
+                                result = self.process_landmarks(landmarks_data, client_id)
+                                if result:
+                                    response = {
+                                        "type": "classification_result",
+                                        "data": result,
+                                        "timestamp": timestamp + (i * 16.67),  # 60fps 기준으로 타임스탬프 조정
+                                        "frame_index": i
+                                    }
+                                    await websocket.send(json.dumps(response))
+                        else:
+                            logger.warning(f"[{client_id}] 잘못된 랜드마크 시퀀스 데이터")
+
                     elif data.get("type") == "ping":
                         await websocket.send(json.dumps({"type": "pong"}))
 
