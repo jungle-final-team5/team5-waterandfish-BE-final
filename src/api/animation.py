@@ -44,7 +44,7 @@ async def get_lesson_animation_by_id(
     try:
         s3_client = boto3.client('s3')
         bucket_name = 'waterandfish-s3'
-        key = f'animations/{anim_filename}'
+        key = f'animations/webm/{anim_filename}'
         
         # S3에서 파일 객체 가져오기
         response = s3_client.get_object(Bucket=bucket_name, Key=key)
@@ -53,9 +53,9 @@ async def get_lesson_animation_by_id(
         # 파일 내용을 Response로 반환
         return Response(
             content=file_content,
-            media_type="application/json",
+            media_type="video/webm",
             headers={
-                "Content-Disposition": f"attachment; filename={anim_filename}",
+                "Content-Disposition": f"inline; filename={anim_filename}",
                 "Cache-Control": "public, max-age=3600"  # 1시간 캐시
             }
         )
