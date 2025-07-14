@@ -50,9 +50,19 @@ async def create_lesson(request: Request, db: AsyncIOMotorDatabase = Depends(get
     result = await db.Lessons.insert_one(lesson_data)
     created = await db.Lessons.find_one({"_id": result.inserted_id})
     
+    # 반환값에 category_id 추가
+    response_data = convert_objectid(created)
+    # sign_text -> word로 key명 변경
+    if "sign_text" in response_data:
+        response_data["word"] = response_data.pop("sign_text")
+    # chapter에는 category_id가 있다고 가정
+    if "category_id" in chapter:
+        response_data["category"] = str(chapter["category_id"])
+    if "created_at" in response_data and isinstance(response_data["created_at"], datetime):
+        response_data["created_at"] = response_data["created_at"].isoformat()
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
-        content=convert_objectid(created)
+        content=response_data
     )
 
 @router.get("")
