@@ -19,6 +19,7 @@ from .api.search import router as search_router
 from .api.ml import router as ml_router
 from .api.animation import router as anim_router
 from .api.recommendations import router as recommendations_router
+from .api.video_upload import router as video_upload_router
 from .core.config import settings
 from .services.embedding import _get_model
 
@@ -65,6 +66,7 @@ app.include_router(quiz_router)        # /quiz
 app.include_router(test_router)        # /test
 app.include_router(review_router)      # /review
 app.include_router(anim_router)        # /anim
+app.include_router(video_upload_router) # /video_upload
 
 
 # 기존 RESTful API 라우터들 (하위 호환성)
