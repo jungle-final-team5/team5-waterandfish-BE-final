@@ -5,15 +5,14 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..db.session import get_db
 from .utils import get_user_id_from_token, require_auth
-from zoneinfo import ZoneInfo
+
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 
-KST = ZoneInfo("Asia/Seoul")
 
-def get_kst_today():
-    now_kst = datetime.now(KST)
-    return datetime.combine(now_kst.date(), time(0, 0, 0), tzinfo=KST)
+def get_utc_today():
+    now_utc = datetime.utcnow()
+    return datetime.combine(now_utc.date(), time(0, 0, 0))
 
 
 @router.get("/streak")
@@ -30,9 +29,9 @@ async def get_streak(
         {"user_id": ObjectId(user_id), "has_activity": True}
     ).sort("activity_date", 1).to_list(length=None)
     
-    # KST 기준으로 날짜 변환
-    study_dates = [a["activity_date"].astimezone(KST).strftime("%Y-%m-%d") for a in activities]
-    date_list = [a["activity_date"].astimezone(KST).date() for a in activities]
+    # UTC 기준으로 날짜 변환
+    study_dates = [a["activity_date"].strftime("%Y-%m-%d") for a in activities]
+    date_list = [a["activity_date"].date() for a in activities]
     
     # streak 계산 함수 (가장 최근 날짜부터 연속 streak 계산)
     def calculate_streaks(dates):
@@ -53,10 +52,10 @@ async def get_streak(
                 max_streak = temp_streak
             prev = dates[i]
         
-        # current streak: 오늘(KST)부터 연속된 날짜만 카운트
+        # current streak: 오늘(UTC)부터 연속된 날짜만 카운트
         from datetime import datetime as dt_datetime
-        today_kst = dt_datetime.now(KST).date()
-        if dates and dates[-1] == today_kst:
+        today_utc = dt_datetime.utcnow().date()
+        if dates and dates[-1] == today_utc:
             current_streak = 1
             for i in range(len(dates)-1, 0, -1):
                 if (dates[i] - dates[i-1]).days == 1:
@@ -89,14 +88,14 @@ async def complete_today_activity(
     """오늘 출석 완료"""
     user_id = require_auth(request, access_token)
     
-    today = get_kst_today()
+    today = get_utc_today()
     
     result = await db.user_daily_activity.update_one(
         {"user_id": ObjectId(user_id), "activity_date": today},
         {
             "$set": {
                 "has_activity": True,
-                "updated_at": datetime.now(KST)
+                "updated_at": datetime.utcnow()
             }
         }
     )
@@ -107,8 +106,8 @@ async def complete_today_activity(
             "user_id": ObjectId(user_id),
             "activity_date": today,
             "has_activity": True,
-            "created_at": datetime.now(KST),
-            "updated_at": datetime.now(KST)
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
         })
     
     return {
