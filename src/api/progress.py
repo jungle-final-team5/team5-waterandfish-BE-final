@@ -398,6 +398,44 @@ async def update_chapter_lessons_progress(
         "message": "학습 진행 상태 업데이트 완료"
     }
 
+@router.get("/failures/letter/{chaptertype}")
+async def get_failed_lessons_letter(
+    chaptertype: str,
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """내 실패한 레슨 조회 (자음/모음 챕터 전체, sign_text 리스트 반환)"""
+    user_id = require_auth(request)
+    if chaptertype == "consonant":
+        chapters = await db.Chapters.find({"title": "자음"}, {"_id": 1}).to_list(length=None)
+    elif chaptertype == "vowel":
+        chapters = await db.Chapters.find({"title": "모음"}, {"_id": 1}).to_list(length=None)
+    else:
+        return {"success": False, "data": [], "message": "잘못된 chaptertype"}
+    chapter_ids = [c["_id"] for c in chapters]
+    if not chapter_ids:
+        return {"success": True, "data": [], "message": "해당 챕터 없음"}
+
+    lessons = await db.Lessons.find({"chapter_id": {"$in": chapter_ids}}, {"_id": 1, "sign_text": 1}).to_list(length=None)
+    lesson_ids = [l["_id"] for l in lessons]
+    lesson_id_to_sign = {l["_id"]: l.get("sign_text", "") for l in lessons}
+    if not lesson_ids:
+        return {"success": True, "data": [], "message": "해당 레슨 없음"}
+
+    progresses = await db.User_Lesson_Progress.find({
+        "user_id": ObjectId(user_id),
+        "lesson_id": {"$in": lesson_ids},
+        "status": "quiz_wrong"
+    }).to_list(length=None)
+
+    failed_signs = [lesson_id_to_sign.get(p["lesson_id"], "") for p in progresses if lesson_id_to_sign.get(p["lesson_id"], "")]
+    failed_signs = sorted(list(set(failed_signs)))
+
+    return {
+        "success": True,
+        "data": failed_signs,
+        "message": "실패한 레슨(글자) 조회 성공"
+    }
 
 
 @router.get("/chapters/{chapter_id}/lessons")

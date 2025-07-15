@@ -113,8 +113,8 @@ async def submit_letter_quiz_result(
         elif letter["sign_text"] in failed_letters:
             failed_result.append(letter["_id"])
     
-    # 모두 정답이면 quiz_correct, 하나라도 오답이면 quiz_wrong
-    if passed_letters and not failed_letters:
+    # 맞은 것은 quiz_correct, 틀린 것은 quiz_wrong으로 각각 따로 처리
+    if passed_result:
         await db.User_Lesson_Progress.update_many(
             {
                 "user_id": ObjectId(user_id),
@@ -122,15 +122,15 @@ async def submit_letter_quiz_result(
             },
             {"$set": {"status": "quiz_correct", "updated_at": datetime.utcnow()}}
         )
-    elif failed_letters:
+    if failed_result:
         await db.User_Lesson_Progress.update_many(
             {
                 "user_id": ObjectId(user_id),
-                "lesson_id": {"$in": passed_result + failed_result}
+                "lesson_id": {"$in": failed_result}
             },
             {"$set": {"status": "quiz_wrong", "updated_at": datetime.utcnow()}}
         )
-    elif not passed_letters and not failed_letters:
+    if not passed_letters and not failed_letters:
         await db.User_Lesson_Progress.update_many(
             {
                 "user_id": ObjectId(user_id),
@@ -139,7 +139,7 @@ async def submit_letter_quiz_result(
             },
             {"$set": {"status": "study", "updated_at": datetime.utcnow()}}
         )
-    
+
     return {
         "success": True,
         "data": {"passed": len(passed_result), "failed": len(failed_result)},
