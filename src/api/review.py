@@ -163,7 +163,48 @@ async def mark_as_reviewed(
         "success": True,
         "message": "레뷰 완료로 표시되었습니다"
     }
+@router.post("/mark/letter/{chaptertype}")
+async def mark_as_reviewed_letter(
+    chaptertype: str,
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """자음/모음 챕터의 quiz_wrong 레슨만 리뷰 완료로 표시"""
+    user_id = require_auth(request)
+    if chaptertype == "consonant":
+        chapters = await db.Chapters.find({"title": "자음"}, {"_id": 1}).to_list(length=None)
+    elif chaptertype == "vowel":
+        chapters = await db.Chapters.find({"title": "모음"}, {"_id": 1}).to_list(length=None)
+    else:
+        raise HTTPException(status_code=400, detail="잘못된 chaptertype")
+    chapter_ids = [c["_id"] for c in chapters]
+    if not chapter_ids:
+        return {"success": False, "message": "해당 챕터 없음"}
 
+    lessons = await db.Lessons.find({"chapter_id": {"$in": chapter_ids}}, {"_id": 1}).to_list(length=None)
+    lesson_ids = [l["_id"] for l in lessons]
+    if not lesson_ids:
+        return {"success": False, "message": "해당 레슨 없음"}
+
+    result = await db.User_Lesson_Progress.update_many(
+        {
+            "user_id": ObjectId(user_id),
+            "lesson_id": {"$in": lesson_ids},
+            "status": "quiz_wrong"
+        },
+        {
+            "$set": {
+                "status": "reviewed",
+                "updated_at": datetime.utcnow(),
+                "last_event_at": datetime.utcnow()
+            }
+        }
+    )
+    await mark_today_activity(user_id, db)
+    return {
+        "success": True,
+        "message": f"{result.modified_count}개 레슨이 리뷰 완료로 표시되었습니다"
+    }
 # 리뷰 통계
 @router.get("/stats")
 async def get_review_stats(
