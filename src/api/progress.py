@@ -355,7 +355,11 @@ async def get_failed_lessons_with_chapterId(
     # 5. 교집합: lessons 중 progress에 있는 아이디만 남김
     failed_ids = {p["lesson_id"] for p in failed_progress}
     failed_lessons = [lesson for lesson in lessons if lesson["_id"] in failed_ids]
-
+    
+    # 각 레슨에 word 필드 추가 (sign_text를 word로 매핑)
+    for lesson in failed_lessons:
+        lesson["word"] = lesson.get("sign_text", "")
+    
     return {
         "success": True,
         "data": convert_objectid(failed_lessons),
