@@ -5,6 +5,7 @@ import logging
 from urllib.parse import urlparse
 from typing import Optional
 from dotenv import load_dotenv
+import json
 
 
 logger = logging.getLogger(__name__)
@@ -111,6 +112,26 @@ class S3Utils:
             
         except Exception:
             return None
+
+    def upload_video_and_label(self, label: str, video_file) -> tuple:
+        """
+        영상과 라벨 JSON을 S3에 업로드합니다.
+        Args:
+            label: 라벨명
+            video_file: FastAPI UploadFile 객체
+        Returns:
+            (video_url, label_url)
+        """
+        bucket = "waterandfish-s3"
+        video_key = f"uploaded-src/{label}/{video_file.filename}"
+        self.s3_client.upload_fileobj(video_file.file, bucket, video_key)
+        video_url = f"s3://{bucket}/{video_key}"
+
+        label_key = f"labels/{label}.json"
+        label_data = {"label": label, "video": video_file.filename}
+        self.s3_client.put_object(Body=json.dumps(label_data), Bucket=bucket, Key=label_key)
+        label_url = f"s3://{bucket}/{label_key}"
+        return video_url, label_url
 
 # 전역 인스턴스
 s3_utils = S3Utils() 
