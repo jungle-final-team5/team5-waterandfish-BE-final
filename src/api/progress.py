@@ -6,12 +6,16 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..db.session import get_db
 from .utils import get_user_id_from_token, require_auth, convert_objectid
 
+def get_utc_today():
+    now_utc = datetime.utcnow()
+    return datetime.combine(now_utc.date(), datetime.min.time())
+
 router = APIRouter(prefix="/progress", tags=["progress"])
 
 
 # 오늘 활동 기록 함수
 async def mark_today_activity(user_id, db):
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = get_utc_today()
     await db.user_daily_activity.update_one(
         {"user_id": ObjectId(user_id), "activity_date": today},
         {"$set": {"has_activity": True, "updated_at": datetime.utcnow()}},
