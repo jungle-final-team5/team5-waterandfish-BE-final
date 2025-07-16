@@ -30,7 +30,7 @@ from s3_utils import s3_utils
 logger = logging.getLogger(__name__)
 
 class SignClassifierWebSocketServer:
-    def __init__(self, model_info_url, host, port, debug_mode=False, prediction_interval=5, enable_profiling=False):
+    def __init__(self, model_info_url, host, port, debug_mode=False, prediction_interval=5, enable_profiling=False, result_buffer_size=15):
         """수어 분류 WebSocket 서버 초기화 (벡터 데이터 처리용)"""
         self.host = host
         self.port = port
@@ -41,6 +41,7 @@ class SignClassifierWebSocketServer:
         
         # 성능 최적화 설정 (벡터 처리에 최적화)
         self.prediction_interval = prediction_interval  # N개 벡터마다 예측 실행
+        self.result_buffer_size = result_buffer_size  # 분류 결과 버퍼 크기 (기본값: 15개 프레임)
         
         # 성능 통계 추적
         self.performance_stats = {
@@ -95,7 +96,7 @@ class SignClassifierWebSocketServer:
         logger.info(f"원본 모델 경로: {self.model_info['model_path']}")
         logger.info(f"변환된 모델 경로: {self.MODEL_SAVE_PATH}")
         logger.info(f"시퀀스 길이: {self.MAX_SEQ_LENGTH}")
-        logger.info(f"성능 설정: 예측 간격={self.prediction_interval}")
+        logger.info(f"성능 설정: 예측 간격={self.prediction_interval}, 결과 버퍼 크기={self.result_buffer_size}")
         
         # 모델 파일 존재 확인
         if not os.path.exists(self.MODEL_SAVE_PATH):
@@ -182,6 +183,9 @@ class SignClassifierWebSocketServer:
         # 벡터 카운터 (클라이언트별)
         self.client_vector_counters = {}  # {client_id: vector_count}
         
+        # 분류 결과 버퍼 (클라이언트별로 관리) - 15개 프레임의 분류 결과를 저장
+        self.client_result_buffers = {}  # {client_id: deque(maxlen=15)}
+        
         # 분류 통계
         self.classification_count = 0
         self.last_log_time = 0
@@ -251,6 +255,8 @@ class SignClassifierWebSocketServer:
                 "same_count": 0
             }
             self.client_vector_counters[client_id] = 0
+            # 분류 결과 버퍼 초기화
+            self.client_result_buffers[client_id] = deque(maxlen=self.result_buffer_size)
         logger.info(f"클라이언트 초기화: {client_id}")
     
     def cleanup_client(self, client_id):
@@ -263,6 +269,8 @@ class SignClassifierWebSocketServer:
             del self.client_sequence_managers[client_id]
         if client_id in self.client_vector_counters:
             del self.client_vector_counters[client_id]
+        if client_id in self.client_result_buffers:
+            del self.client_result_buffers[client_id]
         
         # 벡터 처리 모드에서는 별도 정리 작업 없음
         
@@ -508,13 +516,57 @@ class SignClassifierWebSocketServer:
         
         return sequence
     
+    def add_result_to_buffer(self, result, client_id):
+        """분류 결과를 버퍼에 추가"""
+        self.client_result_buffers[client_id].append(result)
+    
+    def calculate_averaged_result(self, client_id):
+        """버퍼의 분류 결과들의 평균을 계산"""
+        buffer = self.client_result_buffers[client_id]
+        if not buffer:
+            return None
+        
+        # 모든 라벨에 대한 확률 합계 초기화
+        total_probabilities = {}
+        for label in self.ACTIONS:
+            total_probabilities[label] = 0.0
+        
+        # 버퍼의 모든 결과에서 확률 합계 계산
+        for result in buffer:
+            for label, prob in result['probabilities'].items():
+                total_probabilities[label] += prob
+        
+        # 평균 확률 계산
+        buffer_size = len(buffer)
+        avg_probabilities = {}
+        for label in self.ACTIONS:
+            avg_probabilities[label] = total_probabilities[label] / buffer_size
+        
+        # 평균 확률이 가장 높은 라벨 찾기
+        best_label = max(avg_probabilities, key=avg_probabilities.get)
+        best_confidence = avg_probabilities[best_label]
+        
+        # 평균 결과 생성
+        averaged_result = {
+            "prediction": best_label,
+            "confidence": best_confidence,
+            "probabilities": avg_probabilities,
+            "buffer_size": buffer_size  # 디버깅용 정보
+        }
+        
+        return averaged_result
+    
     def log_classification_result(self, result, client_id):
         """분류 결과를 로그로 출력"""
         current_time = asyncio.get_event_loop().time()
         
         # 로그 출력 주기 제한 (너무 빈번한 로그 방지)
         if current_time - self.last_log_time >= self.log_interval:
-            logger.info(f"[{client_id}] 예측: {result['prediction']} (신뢰도: {result['confidence']:.3f})")
+            # 디버그 모드에서 버퍼 정보 출력
+            if self.debug_mode and 'buffer_size' in result:
+                logger.info(f"[{client_id}] 예측: {result['prediction']} (신뢰도: {result['confidence']:.3f}, 버퍼크기: {result['buffer_size']})")
+            else:
+                logger.info(f"[{client_id}] 예측: {result['prediction']} (신뢰도: {result['confidence']:.3f})")
 
             message = json.dumps({
                 "type": "classification_log",
@@ -595,12 +647,22 @@ class SignClassifierWebSocketServer:
                     "probabilities": {label: float(prob) for label, prob in zip(self.ACTIONS, pred_probs[0])}
                 }
                 
-                # 클라이언트 상태 업데이트 (디버그 표시용)
-                self.client_states[client_id]["prediction"] = pred_label
-                self.client_states[client_id]["confidence"] = confidence
+                # 분류 결과를 버퍼에 추가
+                self.add_result_to_buffer(result, client_id)
                 
-                # 분류 결과를 로그로 출력
-                self.log_classification_result(result, client_id)
+                # 버퍼의 평균 결과 계산
+                averaged_result = self.calculate_averaged_result(client_id)
+                
+                # 클라이언트 상태 업데이트 (평균 결과 기준)
+                if averaged_result:
+                    self.client_states[client_id]["prediction"] = averaged_result["prediction"]
+                    self.client_states[client_id]["confidence"] = averaged_result["confidence"]
+                    
+                    # 평균 결과를 로그로 출력
+                    self.log_classification_result(averaged_result, client_id)
+                    
+                    # 평균 결과 반환
+                    result = averaged_result
             
             # 성능 프로파일링 출력
             total_time = time.time() - process_start_time
@@ -771,9 +833,11 @@ class SignClassifierWebSocketServer:
         logger.info(f"   - 디버그 모드: {self.debug_mode}")
         logger.info(f"성능 최적화 설정:")
         logger.info(f"   - 예측 간격: {self.prediction_interval}벡터마다 예측")
+        logger.info(f"   - 결과 버퍼 크기: {self.result_buffer_size}개 프레임")
         logger.info(f"   - TensorFlow XLA JIT: 활성화")
         logger.info(f"   - Performance profiling: {self.enable_profiling}")
         logger.info(f"벡터 처리 모드 - JSON 랜드마크 데이터만 지원")
+        logger.info(f"결과 버퍼링 모드 - {self.result_buffer_size}개 프레임의 분류 결과를 평균화하여 전송")
         logger.info(f"Starting server with optimized settings...")
         
         try:
@@ -831,6 +895,8 @@ def main():
                        help="Enable debug mode for additional logging")
     parser.add_argument("--prediction-interval", type=int, default=5,
                        help="Prediction interval (run prediction every N vectors, default: 5)")
+    parser.add_argument("--result-buffer-size", type=int, default=6,
+                       help="Result buffer size (number of frames to average, default: 15)")
     parser.add_argument("--profile", action='store_true',
                        help="Enable detailed performance profiling")
     args = parser.parse_args()
@@ -841,6 +907,7 @@ def main():
     log_level = args.log_level
     debug_mode = args.debug
     prediction_interval = args.prediction_interval
+    result_buffer_size = args.result_buffer_size
     enable_profiling = args.profile
     
     # 로깅 설정 (동적으로 설정)
@@ -856,6 +923,7 @@ def main():
         print(f"Debug mode: {debug_mode}")
         print(f"Performance settings:")
         print(f"   - Prediction interval: {prediction_interval}")
+        print(f"   - Result buffer size: {result_buffer_size}")
         print(f"   - Performance profiling: {enable_profiling}")
         print(f"Vector processing mode - MediaPipe processing moved to frontend")
         print(f"Starting server with optimized vector processing...")
@@ -902,7 +970,8 @@ def main():
         port=port,
         debug_mode=debug_mode,
         prediction_interval=prediction_interval,
-        enable_profiling=enable_profiling
+        enable_profiling=enable_profiling,
+        result_buffer_size=result_buffer_size
     )
     
     # 디버그 모드 활성화 시 알림
@@ -911,6 +980,7 @@ def main():
         logger.info("   - 벡터 처리 성능 정보")
         logger.info("   - 랜드마크 데이터 유효성 검사 결과")
         logger.info("   - 클라이언트별 상세 처리 정보")
+        logger.info("   - 분류 결과 버퍼링 정보")
     
     asyncio.run(server.run_server())
 
