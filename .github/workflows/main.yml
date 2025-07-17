@@ -46,7 +46,7 @@ jobs:
             # 서비스 재시작
             sudo systemctl restart waterandfish-backend.service
 
-            for port in {9001..9099}; do
-              sudo systemctl restart waterandfish-websocket-${port}.service || true
-            done
+            # for port in {9001..9099}; do
+            #  sudo systemctl restart waterandfish-websocket-${port}.service || true
+            #done
           EOF
