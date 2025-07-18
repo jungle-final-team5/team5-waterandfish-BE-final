@@ -116,6 +116,7 @@ class UserService:
             streak_days=user_data.get("streak_days", 0),
             overall_progress=user_data.get("overall_progress", 0),
             description=user_data.get("description"),
+            chapter_current_index=user_data.get("chapter_current_index", 0),
             created_at=user_data.get("created_at", datetime.utcnow()),
             updated_at=user_data.get("updated_at", datetime.utcnow())
         )
