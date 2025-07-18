@@ -34,6 +34,7 @@ class UserORM(Base):
     streak_days = Column(Integer, default=0)
     overall_progress = Column(Integer, default=0)
     description = Column(String, nullable=True)
+    chapter_current_index = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
@@ -45,6 +46,7 @@ class UserBase(BaseModel):
     streak_days: Optional[int] = 0
     overall_progress: Optional[int] = 0
     description: Optional[str] = None
+    chapter_current_index: Optional[int] = 0
 
 class UserCreate(UserBase):
     password: str

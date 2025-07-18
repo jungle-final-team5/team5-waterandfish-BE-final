@@ -64,13 +64,33 @@ async def create_chapter(request: Request, db: AsyncIOMotorDatabase = Depends(ge
 
 @router.get("")
 async def get_all_chapters(db: AsyncIOMotorDatabase = Depends(get_db)):
-    """모든 챕터 조회"""
-    chapters = await db.Chapters.find().to_list(length=None)
-    
+    """모든 챕터 조회 (각 챕터별 lesson 포함, order_index 기준 정렬)"""
+    chapters = await db.Chapters.find().sort("order_index", 1).to_list(length=None)
+    result = []
+    for chapter in chapters:
+        lessons = await db.Lessons.find({"chapter_id": chapter["_id"]}).to_list(length=None)
+        lesson_list = []
+        for lesson in lessons:
+            item = {
+                "id": str(lesson["_id"]),
+                "chapterId": str(lesson["chapter_id"]),
+                "word": lesson.get("sign_text", ""),
+                "type": lesson.get("content_type", "")
+            }
+            if "model_data_url" in lesson:
+                item["modelInfo"] = lesson["model_data_url"]
+            if "media_url" in lesson:
+                item["url"] = lesson["media_url"]
+            if "created_at" in lesson and isinstance(lesson["created_at"], datetime):
+                item["created_at"] = lesson["created_at"].isoformat()
+            lesson_list.append(item)
+        chapter_data = convert_objectid(chapter)
+        chapter_data["lessons"] = lesson_list
+        result.append(chapter_data)
     return {
         "success": True,
-        "data": {"chapters": convert_objectid(chapters)},
-        "message": "챕터 목록 조회 성공"
+        "data": {"chapters": result},
+        "message": "챕터 목록(레슨 포함, order_index 정렬) 조회 성공"
     }
 
 @router.get("/{chapter_id}")
@@ -222,7 +242,7 @@ async def connect_lessons_to_chapter(
         "success": True,
         "message": "레슨 연결 성공"
     }
-
+# 없애도 될 듯
 @router.get("/{chapter_id}/session")
 async def get_chapter_session(
     chapter_id: str,
