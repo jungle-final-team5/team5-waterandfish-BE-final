@@ -717,15 +717,16 @@ class SignClassifierWebSocketServer:
         self.clients.add(websocket)
         self.initialize_client(client_id)
 
-        logger.info(f"Vector processing client connected: {client_id}")
-        logger.info(f"Expected message format: JSON with 'type': 'landmarks' and 'data': [landmark_vectors]")
+        logger.info(f"[WS] 클라이언트 연결됨: {client_id}")
+        logger.info(f"[WS] 기대 메시지 포맷: JSON with 'type': 'landmarks' or 'landmarks_sequence'")
 
         try:
             async for message in websocket:
+                logger.info(f"[WS] [{client_id}] 메시지 수신: {str(message)[:200]}")
                 try:
                     # 메시지 타입 확인 (텍스트 또는 바이너리)
                     if isinstance(message, bytes):
-                        logger.warning(f"[{client_id}] 바이너리 메시지 수신됨 (길이: {len(message)} bytes) - 벡터 처리 모드에서는 지원하지 않음")
+                        logger.warning(f"[WS] [{client_id}] 바이너리 메시지 수신됨 (길이: {len(message)} bytes) - 지원하지 않음")
                         try:
                             await websocket.send(json.dumps({
                                 "type": "error",
@@ -735,24 +736,25 @@ class SignClassifierWebSocketServer:
                             pass
                         continue
 
-                    if self.debug_mode:
-                        logger.debug(f"[{client_id}] 메시지 수신: {message[:100]}...")
-
                     data = json.loads(message)
+                    logger.info(f"[WS] [{client_id}] 파싱된 데이터: {data}")
 
                     if data.get("type") == "landmarks":
                         landmarks_data = data.get("data")
                         if landmarks_data:
+                            logger.info(f"[WS] [{client_id}] landmarks 데이터 수신 및 처리 시작")
                             result = self.process_landmarks(landmarks_data, client_id)
+                            logger.info(f"[WS] [{client_id}] landmarks 예측 결과: {result}")
                             if result:
                                 response = {
                                     "type": "classification_result",
                                     "data": result,
                                     "timestamp": asyncio.get_event_loop().time()
                                 }
+                                logger.info(f"[WS] [{client_id}] landmarks 결과 전송: {response}")
                                 await websocket.send(json.dumps(response))
                         else:
-                            logger.warning(f"[{client_id}] 빈 랜드마크 데이터")
+                            logger.warning(f"[WS] [{client_id}] 빈 landmarks 데이터")
 
                     elif data.get("type") == "landmarks_sequence":
                         sequence_data = data.get("data")
@@ -760,35 +762,36 @@ class SignClassifierWebSocketServer:
                             sequence = sequence_data["sequence"]
                             frame_count = sequence_data.get("frame_count", len(sequence))
                             timestamp = sequence_data.get("timestamp", asyncio.get_event_loop().time())
-                            
-                            logger.info(f"[{client_id}] 랜드마크 시퀀스 수신: {frame_count}개 프레임")
-                            
+                            logger.info(f"[WS] [{client_id}] landmarks_sequence 수신: {frame_count}개 프레임")
                             # 시퀀스의 각 프레임을 처리
                             for i, landmarks_data in enumerate(sequence):
+                                logger.info(f"[WS] [{client_id}] 시퀀스 프레임 {i} 처리 시작")
                                 result = self.process_landmarks(landmarks_data, client_id)
+                                logger.info(f"[WS] [{client_id}] 시퀀스 프레임 {i} 예측 결과: {result}")
                                 if result:
                                     response = {
                                         "type": "classification_result",
                                         "data": result,
-                                        "timestamp": timestamp + (i * 16.67),  # 60fps 기준으로 타임스탬프 조정
+                                        "timestamp": timestamp + (i * 16.67),  # 60fps 기준
                                         "frame_index": i
                                     }
+                                    logger.info(f"[WS] [{client_id}] 시퀀스 프레임 {i} 결과 전송: {response}")
                                     await websocket.send(json.dumps(response))
                         else:
-                            logger.warning(f"[{client_id}] 잘못된 랜드마크 시퀀스 데이터")
+                            logger.warning(f"[WS] [{client_id}] 잘못된 landmarks_sequence 데이터")
 
                     elif data.get("type") == "ping":
                         await websocket.send(json.dumps({"type": "pong"}))
 
                     else:
-                        logger.warning(f"[{client_id}] 알 수 없는 메시지 타입: {data.get('type')}")
+                        logger.warning(f"[WS] [{client_id}] 알 수 없는 메시지 타입: {data.get('type')}")
 
                 except json.JSONDecodeError:
-                    logger.warning(f"잘못된 JSON 메시지: {client_id}")
+                    logger.warning(f"[WS] 잘못된 JSON 메시지: {client_id}")
                 except UnicodeDecodeError as e:
-                    logger.warning(f"UTF-8 디코딩 오류 [{client_id}]: {e} - 바이너리 데이터가 텍스트로 전송됨")
+                    logger.warning(f"[WS] UTF-8 디코딩 오류 [{client_id}]: {e} - 바이너리 데이터가 텍스트로 전송됨")
                 except Exception as e:
-                    logger.error(f"메시지 처리 실패 [{client_id}]: {e}")
+                    logger.error(f"[WS] 메시지 처리 실패 [{client_id}]: {e}")
                     try:
                         await websocket.send(json.dumps({
                             "type": "error",
@@ -798,23 +801,22 @@ class SignClassifierWebSocketServer:
                         pass
 
         except websockets.exceptions.ConnectionClosed:
-            logger.info(f"클라이언트 연결 종료: {client_id}")
+            logger.info(f"[WS] 클라이언트 연결 종료: {client_id}")
         except websockets.exceptions.ConnectionClosedError:
-            logger.info(f"클라이언트 연결 오류로 종료: {client_id}")
+            logger.info(f"[WS] 클라이언트 연결 오류로 종료: {client_id}")
         except Exception as e:
-            logger.error(f"클라이언트 처리 중 오류 [{client_id}]: {e}")
+            logger.error(f"[WS] 클라이언트 처리 중 오류 [{client_id}]: {e}")
             import traceback
-            logger.error(f"상세 오류 정보: {traceback.format_exc()}")
+            logger.error(f"[WS] 상세 오류 정보: {traceback.format_exc()}")
         finally:
             try:
                 self.clients.remove(websocket)
                 self.cleanup_client(client_id)
-                # 모든 클라이언트가 끊겼으면 프로세스 종료
                 if not self.clients:
-                    logger.info("모든 클라이언트 연결 종료됨. 서버 프로세스 종료.")
+                    logger.info("[WS] 모든 클라이언트 연결 종료됨. 서버 프로세스 종료.")
                     os._exit(0)
             except Exception as cleanup_error:
-                logger.error(f"클라이언트 정리 중 오류 [{client_id}]: {cleanup_error}")
+                logger.error(f"[WS] 클라이언트 정리 중 오류 [{client_id}]: {cleanup_error}")
     
     async def run_server(self):
         """WebSocket 서버 실행"""

@@ -42,3 +42,6 @@ htmlcov/
 venv/
 .python-version
 poetry.lock
+
+# Added by Gemini
+requirements.txt
