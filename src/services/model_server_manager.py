@@ -127,7 +127,14 @@ class ModelServerManager:
             return f"wss://{MODEL_SERVER_HOST}/ws/{port}/ws"
     
     def stop_model_server(self, model_id: str) -> bool:
-        """모델 서버를 중지"""
+        """모델 서버를 중지 (높은 우선순위)"""
+        # 종료 작업은 우선순위가 높음 - shutdown_lock을 먼저 획득
+        from . import ml_service
+        with ml_service.shutdown_lock:
+            with ml_service.models_lock:
+                ml_service.shutting_down_models.add(model_id)
+                print(f"[PRIORITY] Starting shutdown for {model_id}")
+        
         if model_id in self.running_servers:
             # 프로세스 종료
             if model_id in self.server_processes:
@@ -145,7 +152,17 @@ class ModelServerManager:
             
             del self.running_servers[model_id]
             print(f"Stopped model server for {model_id}")
+            
+            # 종료 완료 후 정리 (shutdown_lock 유지하여 우선순위 보장)
+            with ml_service.models_lock:
+                ml_service.shutting_down_models.discard(model_id)
+                ml_service.running_models.pop(model_id, None)
+            
             return True
+        else:
+            # 서버가 없어도 shutting_down_models에서 제거
+            with ml_service.models_lock:
+                ml_service.shutting_down_models.discard(model_id)
         return False
     
     def get_server_url(self, model_id: str) -> Optional[str]:
