@@ -845,7 +845,7 @@ class SignClassifierWebSocketServer:
         try:
             await server.wait_closed()
         except KeyboardInterrupt:
-            logger.info("🛑 서버 종료 중...")
+            logger.info(" 서버 종료 중...")
         finally:
             # 벡터 처리 모드에서는 별도 정리 작업 없음
             logger.info("🔄 벡터 처리 서버 종료 완료")

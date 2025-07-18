@@ -1,5 +1,7 @@
 import os
 import subprocess
+import threading
+import asyncio
 # running_models: model_id(str) -> ws_url(str)
 running_models = dict()
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
@@ -10,6 +12,12 @@ from bson import ObjectId
 from collections import defaultdict
 
 running_models = defaultdict(list)
+# 동시성 제어를 위한 락들 (종료 우선순위)
+models_lock = threading.Lock()
+shutdown_lock = threading.Lock()  # 종료 작업 전용 락 (우선순위 높음)
+# 종료 중인 모델들을 추적
+shutting_down_models = set()
+import signal
 import signal
 def is_server_alive_by_pid(pid):
     try:
@@ -28,16 +36,23 @@ def is_server_alive_by_pid(pid):
 
     # 관리 객체에서 죽은 서버 정보 정리
 def cleanup_dead_servers():
-    dead_ids = []
-    for model_id, process in list(model_server_manager.server_processes.items()):
-        pid = process.pid if process else None
-        if not is_server_alive_by_pid(pid):
-            dead_ids.append(model_id)
-    for model_id in dead_ids:
-        print(f"[CLEANUP] Removing dead server info for {model_id}")
-        running_models.pop(model_id, None)
-        model_server_manager.running_servers.pop(model_id, None)
-        model_server_manager.server_processes.pop(model_id, None)
+    # 종료 작업 진행 중이면 잠시 대기
+    with shutdown_lock:
+        with models_lock:
+            dead_ids = []
+            for model_id, process in list(model_server_manager.server_processes.items()):
+                # 종료 중인 모델은 정리 대상에서 제외 (종료 작업이 처리)
+                if model_id in shutting_down_models:
+                    continue
+                    
+                pid = process.pid if process else None
+                if not is_server_alive_by_pid(pid):
+                    dead_ids.append(model_id)
+            for model_id in dead_ids:
+                print(f"[CLEANUP] Removing dead server info for {model_id}")
+                running_models.pop(model_id, None)
+                model_server_manager.running_servers.pop(model_id, None)
+                model_server_manager.server_processes.pop(model_id, None)
 
 async def deploy_model(chapter_id, db=None, use_webrtc: bool = False):
     """챕터에 해당하는 모델 서버를 배포"""
@@ -59,36 +74,66 @@ async def deploy_model(chapter_id, db=None, use_webrtc: bool = False):
 
     ws_urls = []
     import re
+    
     for model_data_url in model_data_urls:
         model_id = model_data_url
-        server_alive = False
-        # 직접 프로세스 상태 확인
-        process = model_server_manager.server_processes.get(model_id)
-        pid = process.pid if process else None
-        if model_id in running_models:
-            try:
-                server_alive = is_server_alive_by_pid(pid)
-            except Exception:
+        
+        # 1단계: 종료 중인지 먼저 확인 (우선순위 존중)
+        shutdown_in_progress = False
+        with shutdown_lock:  # 종료 작업이 진행 중인지 확인
+            with models_lock:
+                if model_id in shutting_down_models:
+                    print(f"Model server {model_id} is shutting down, will start new one")
+                    shutdown_in_progress = True
+        
+        # 2단계: 종료 중이 아니라면 일반적인 상태 확인
+        if not shutdown_in_progress:
+            # 락으로 동시성 제어 (종료 작업이 끼어들 수 있음)
+            with models_lock:
+                # 직접 프로세스 상태 확인
+                process = model_server_manager.server_processes.get(model_id)
+                pid = process.pid if process else None
                 server_alive = False
-            if server_alive:
-                print(f"Model server already running for {model_id}")
-                ws_urls.append(running_models[model_id])
-                continue
-            else:
-                print(f"Model server for {model_id} is not alive. Restarting...")
-                running_models.pop(model_id, None)
-                model_server_manager.running_servers.pop(model_id, None)
-                model_server_manager.server_processes.pop(model_id, None)
-        # 모델 서버 시작
+                
+                if model_id in running_models:
+                    try:
+                        server_alive = is_server_alive_by_pid(pid)
+                    except Exception:
+                        server_alive = False
+                        
+                    if server_alive:
+                        print(f"Model server already running for {model_id}")
+                        ws_urls.append(running_models[model_id])
+                        continue
+                    else:
+                        print(f"Model server for {model_id} is not alive. Restarting...")
+                        running_models.pop(model_id, None)
+                        model_server_manager.running_servers.pop(model_id, None)
+                        model_server_manager.server_processes.pop(model_id, None)
+        
+        # 3단계: 서버 시작 전에 다시 한번 종료 상태 확인
+        with shutdown_lock:  # 종료 작업이 시작되지 않았는지 최종 확인
+            with models_lock:
+                if model_id in shutting_down_models:
+                    print(f"Model server {model_id} shutdown detected during startup, skipping...")
+                    continue
+        
+        # 4단계: 모델 서버 시작 (락 외부에서 실행)
         try:
             ws_url = await model_server_manager.start_model_server(model_id, model_data_url, True)
         except Exception as e:
             print(f"Failed to start model server for {model_id}: {str(e)}")
-            # Continue with other models even if one fails
             raise Exception(f"Failed to start model server for {model_id}: {str(e)}")
-        ws_urls.append(ws_url)
-        running_models[model_id] = ws_url
-        model_server_manager.running_servers[model_id] = ws_url
+        
+        # 5단계: 결과 저장 (종료 작업과 충돌하지 않도록)
+        with models_lock:
+            # 시작 완료 후에도 종료되지 않았는지 확인
+            if model_id not in shutting_down_models:
+                ws_urls.append(ws_url)
+                running_models[model_id] = ws_url
+                model_server_manager.running_servers[model_id] = ws_url
+            else:
+                print(f"Model server {model_id} was shut down during startup, not registering")
         server_type = "WebRTC" if use_webrtc else "WebSocket"
         print(f"{server_type} model server deployed for chapter {chapter_id}: {ws_url}")
         print(f"현재 running_models: {dict(running_models)}")
@@ -116,11 +161,30 @@ async def deploy_lesson_model(lesson_id, db=None, use_webrtc: bool = False):
         raise Exception(f"Lesson {lesson_id} does not have a model_data_url")
     model_id = model_data_url
     import re
-    if model_id in running_models:
-        ws_url = running_models[model_id]
-    else:
+    
+    # 락으로 동시성 제어
+    with models_lock:
+        if model_id in running_models:
+            # 서버가 실제로 살아있는지 확인
+            process = model_server_manager.server_processes.get(model_id)
+            pid = process.pid if process else None
+            if is_server_alive_by_pid(pid):
+                ws_url = running_models[model_id]
+            else:
+                # 죽은 서버 정보 정리
+                print(f"Model server for {model_id} is not alive. Restarting...")
+                running_models.pop(model_id, None)
+                model_server_manager.running_servers.pop(model_id, None)
+                model_server_manager.server_processes.pop(model_id, None)
+                ws_url = None
+        else:
+            ws_url = None
+    
+    # 서버가 없으면 새로 시작 (락 외부에서 실행)
+    if ws_url is None:
         ws_url = await model_server_manager.start_model_server(model_id, model_data_url, use_webrtc)
-        running_models[model_id] = ws_url
+        with models_lock:
+            running_models[model_id] = ws_url
         match = re.search(r":(\d+)/ws", ws_url)
         if match:
             port = int(match.group(1))
