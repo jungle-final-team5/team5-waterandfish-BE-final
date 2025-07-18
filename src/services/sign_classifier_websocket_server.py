@@ -52,60 +52,70 @@ class SignClassifierWebSocketServer:
             'bottleneck_component': 'unknown'
         }
         
-        # 모델 정보 로드
-        self.model_info = self.load_model_info(model_info_url)
-        if not self.model_info:
-            raise ValueError("모델 정보를 로드할 수 없습니다.")
-        
-        # 설정값
-        self.MAX_SEQ_LENGTH = self.model_info["input_shape"][0]
-        
-        # 모델 경로 처리 (S3 URL 또는 로컬 경로)
-        model_path = self.model_info["model_path"]
-        
-        # s3://waterandfish-s3/models/ 디렉터리에서 찾기
-        model_path = f"s3://waterandfish-s3/{model_path}"
-        
-        # 먼저 S3에서 시도
-        
-        try:
-            logger.info(f"S3에서 모델 파일 다운로드 중: {model_path}")
-            # S3에서 모델 파일 다운로드
-            self.MODEL_SAVE_PATH = s3_utils.download_file_from_s3(model_path)
-            logger.info(f"S3 모델 파일 다운로드 완료: {self.MODEL_SAVE_PATH}")
-        except Exception as e:
-            logger.warning(f"S3 다운로드 실패, 로컬 경로로 시도: {e}")
-            # 로컬 경로 처리
-            # model_path가 이미 "models/"로 시작하는 경우 중복 방지
-            if model_path.startswith("models/"):
-                # "models/" 부분을 제거하고 파일명만 사용
-                model_filename = model_path[7:]  # "models/" 제거
-                local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "public", "models", model_filename)
+
+        # PRELOADED_MAPPING 환경변수에서 매핑 정보 읽기
+        preloaded_mapping = os.environ.get("PRELOADED_MAPPING")
+        mapping = json.loads(preloaded_mapping) if preloaded_mapping else {}
+
+        if model_info_url in mapping:
+            # 캐시된 파일 사용
+            model_info_local_path = mapping[model_info_url]["model_info_local_path"]
+            model_file_local_path = mapping[model_info_url]["model_file_local_path"]
+            with open(model_info_local_path, 'r', encoding='utf-8') as f:
+                self.model_info = json.load(f)
+            if not self.model_info:
+                raise ValueError("모델 정보를 로드할 수 없습니다.")
+            self.MAX_SEQ_LENGTH = self.model_info["input_shape"][0]
+            self.MODEL_SAVE_PATH = model_file_local_path
+            self.ACTIONS = self.model_info["labels"]
+            self.QUIZ_LABELS = [a for a in self.ACTIONS if a != "None"]
+            logger.info(f"로드된 라벨: {self.ACTIONS}")
+            logger.info(f"퀴즈 라벨: {self.QUIZ_LABELS}")
+            logger.info(f"원본 모델 경로: {self.model_info['model_path']}")
+            logger.info(f"캐시된 모델 파일 경로: {self.MODEL_SAVE_PATH}")
+            logger.info(f"시퀀스 길이: {self.MAX_SEQ_LENGTH}")
+            logger.info(f"성능 설정: 예측 간격={self.prediction_interval}, 결과 버퍼 크기={self.result_buffer_size}")
+            # 모델 파일 존재 확인
+            if not os.path.exists(self.MODEL_SAVE_PATH):
+                logger.error(f"모델 파일을 찾을 수 없습니다: {self.MODEL_SAVE_PATH}")
+                raise FileNotFoundError(f"모델 파일을 찾을 수 없습니다: {self.MODEL_SAVE_PATH}")
+            logger.info(f"모델 파일 존재 확인: {self.MODEL_SAVE_PATH}")
+            logger.info("벡터 처리 모드 - MediaPipe는 프론트엔드에서 처리됩니다")
+        else:
+            # 기존 로직 사용 (S3/로컬 다운로드)
+            logger.warning(f"[캐시 미포함] 모델({model_info_url})은 캐시에 없으므로 기존 로직을 사용합니다.")
+            self.model_info = self.load_model_info(model_info_url)
+            if not self.model_info:
+                raise ValueError("모델 정보를 로드할 수 없습니다.")
+            self.MAX_SEQ_LENGTH = self.model_info["input_shape"][0]
+            # 모델 파일 경로 추출 및 다운로드
+            model_path = self.model_info.get("model_path")
+            if not model_path:
+                raise ValueError("model_path가 model_info에 없습니다.")
+            if model_path.startswith('s3://'):
+                logger.info(f"S3에서 모델 파일 다운로드: {model_path}")
+                self.MODEL_SAVE_PATH = s3_utils.download_file_from_s3(model_path)
             else:
-                # 그대로 사용
-                local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "public", "models", model_path)
-            
-            self.MODEL_SAVE_PATH = local_path
-            # self._setup_local_model_path(model_path)
-        
-        self.ACTIONS = self.model_info["labels"]
-        self.QUIZ_LABELS = [a for a in self.ACTIONS if a != "None"]
-        
-        logger.info(f"로드된 라벨: {self.ACTIONS}")
-        logger.info(f"퀴즈 라벨: {self.QUIZ_LABELS}")
-        logger.info(f"원본 모델 경로: {self.model_info['model_path']}")
-        logger.info(f"변환된 모델 경로: {self.MODEL_SAVE_PATH}")
-        logger.info(f"시퀀스 길이: {self.MAX_SEQ_LENGTH}")
-        logger.info(f"성능 설정: 예측 간격={self.prediction_interval}, 결과 버퍼 크기={self.result_buffer_size}")
-        
-        # 모델 파일 존재 확인
-        if not os.path.exists(self.MODEL_SAVE_PATH):
-            logger.error(f"모델 파일을 찾을 수 없습니다: {self.MODEL_SAVE_PATH}")
-            raise FileNotFoundError(f"모델 파일을 찾을 수 없습니다: {self.MODEL_SAVE_PATH}")
-        logger.info(f"모델 파일 존재 확인: {self.MODEL_SAVE_PATH}")
-        
-        # MediaPipe 관련 초기화 제거 - 프론트엔드에서 처리
-        logger.info("벡터 처리 모드 - MediaPipe는 프론트엔드에서 처리됩니다")
+                # 상대경로/절대경로 모두 지원
+                if not os.path.isabs(model_path):
+                    current_dir = os.path.dirname(os.path.abspath(__file__))
+                    project_root = os.path.dirname(os.path.dirname(current_dir))
+                    model_path = os.path.join(project_root, model_path)
+                    model_path = os.path.normpath(model_path)
+                self.MODEL_SAVE_PATH = model_path
+            self.ACTIONS = self.model_info["labels"]
+            self.QUIZ_LABELS = [a for a in self.ACTIONS if a != "None"]
+            logger.info(f"로드된 라벨: {self.ACTIONS}")
+            logger.info(f"퀴즈 라벨: {self.QUIZ_LABELS}")
+            logger.info(f"원본 모델 경로: {self.model_info['model_path']}")
+            logger.info(f"모델 파일 경로: {self.MODEL_SAVE_PATH}")
+            logger.info(f"시퀀스 길이: {self.MAX_SEQ_LENGTH}")
+            logger.info(f"성능 설정: 예측 간격={self.prediction_interval}, 결과 버퍼 크기={self.result_buffer_size}")
+            if not os.path.exists(self.MODEL_SAVE_PATH):
+                logger.error(f"모델 파일을 찾을 수 없습니다: {self.MODEL_SAVE_PATH}")
+                raise FileNotFoundError(f"모델 파일을 찾을 수 없습니다: {self.MODEL_SAVE_PATH}")
+            logger.info(f"모델 파일 존재 확인: {self.MODEL_SAVE_PATH}")
+            logger.info("벡터 처리 모드 - MediaPipe는 프론트엔드에서 처리됩니다")
         
         # 모델 로드
         try:

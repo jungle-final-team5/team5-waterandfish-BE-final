@@ -3,9 +3,12 @@ import asyncio
 import os
 import threading
 import time
+import json
 from typing import Dict, Optional
 import sys
 from ..core.config import settings
+from .s3_utils import s3_utils
+
 ppath = sys.executable
 class ModelServerManager:
     
@@ -15,6 +18,36 @@ class ModelServerManager:
         self.server_processes: Dict[str, subprocess.Popen] = {}  # {model_id: process}
         self.log_threads: Dict[str, threading.Thread] = {}  # {model_id: thread}
         self.count = 0
+        self.mapping = {}  # info_url -> {model_info_local_path, model_file_local_path}
+        self.preload_common_models()
+    def preload_common_models(self):
+        common_models = [
+            "s3://waterandfish-s3/model-info/model-info-20250715_105145.json",
+            "s3://waterandfish-s3/model-info/model-info-20250714_111517.json",
+            "s3://waterandfish-s3/model-info/model-info-20250714_135523.json",
+            "s3://waterandfish-s3/model-info/model-info-20250714_164931.json",
+            "s3://waterandfish-s3/model-info/model-info-20250714_095104.json"
+        ]
+        for info_url in common_models:
+            try:
+                # info 파일 다운로드
+                info_local = s3_utils.download_file_from_s3(info_url)
+                with open(info_local, "r", encoding="utf-8") as f:
+                    info = json.load(f)
+                model_path = info.get("model_path")
+                if not model_path:
+                    continue
+                model_s3_url = f"s3://waterandfish-s3/{model_path}" if not model_path.startswith("s3://") else model_path
+                model_local = s3_utils.download_file_from_s3(model_s3_url)
+                self.mapping[info_url] = {
+                    "model_info_local_path": info_local,
+                    "model_file_local_path": model_local
+                }
+            except Exception as e:
+                print(f"[preload] {info_url} 실패: {e}")
+        print("[preload] 최종 매핑 결과:")
+        for k, v in self.mapping.items():
+            print(f"  {k} => {v}")
     async def start_model_server(self, model_id: str, model_data_url: str, use_webrtc: bool = False) -> str:
         """모델 서버를 시작하고 웹소켓 URL을 반환"""
 
@@ -25,6 +58,7 @@ class ModelServerManager:
             env = os.environ.copy()
             env["MODEL_DATA_URL"] = model_data_url
             env["PYTHONUNBUFFERED"] = "1"  # Python 출력 버퍼링 비활성화
+            env["PRELOADED_MAPPING"] = json.dumps(self.mapping)
             
             # # WebRTC 사용 여부에 따라 스크립트 선택
             # if use_webrtc:
@@ -166,4 +200,4 @@ class ModelServerManager:
         return None
 
 # 전역 인스턴스
-model_server_manager = ModelServerManager() 
+model_server_manager = ModelServerManager()
