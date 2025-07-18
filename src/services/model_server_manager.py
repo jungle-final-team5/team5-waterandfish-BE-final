@@ -92,7 +92,7 @@ class ModelServerManager:
         MODEL_SERVER_HOST = settings.MODEL_SERVER_HOST
         
         if MODEL_SERVER_HOST == "localhost":
-            return f"ws://localhost:{port}/ws"
+            return f"ws://localhost:{port}"
         else:
             return f"wss://{MODEL_SERVER_HOST}/ws/{port}/ws"
     
