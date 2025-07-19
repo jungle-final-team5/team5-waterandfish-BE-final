@@ -16,7 +16,6 @@ async def deploy_chapter_model(
     chapter_id: str,
     request: Request,
     db: AsyncIOMotorDatabase = Depends(get_db),
-    use_webrtc: bool = False
 ):
     print("deploy_chapter_model")   
     """챕터에 해당하는 모델 서버를 배포하고 WebSocket URL 목록 반환"""
@@ -74,7 +73,6 @@ async def deploy_lesson_model_api(
     lesson_id: str,
     request: Request,
     db: AsyncIOMotorDatabase = Depends(get_db),
-    use_webrtc: bool = False
 ):
     """단일 레슨에 해당하는 모델 서버를 배포하고 WebSocket URL 반환"""
     user_id = require_auth(request)
@@ -99,7 +97,6 @@ async def deploy_lesson_model_api(
 async def public_deploy_lesson_model_api(
     lesson_id: str,
     db: AsyncIOMotorDatabase = Depends(get_db),
-    use_webrtc: bool = False
 ):
     """(공개) 단일 레슨에 해당하는 모델 서버를 배포하고 WebSocket URL 반환 - 인증 불필요"""
     try:

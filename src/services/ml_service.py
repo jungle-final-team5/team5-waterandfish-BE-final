@@ -54,7 +54,7 @@ def cleanup_dead_servers():
                 model_server_manager.running_servers.pop(model_id, None)
                 model_server_manager.server_processes.pop(model_id, None)
 
-async def deploy_model(chapter_id, db=None, use_webrtc: bool = False):
+async def deploy_model(chapter_id, db=None):
     """챕터에 해당하는 모델 서버를 배포"""
     if db is None:
         # db가 없으면 새로 가져오기 (이상적으로는 의존성 주입 사용)
@@ -120,7 +120,7 @@ async def deploy_model(chapter_id, db=None, use_webrtc: bool = False):
         
         # 4단계: 모델 서버 시작 (락 외부에서 실행)
         try:
-            ws_url = await model_server_manager.start_model_server(model_id, model_data_url, True)
+            ws_url = await model_server_manager.start_model_server(model_id, model_data_url)
         except Exception as e:
             print(f"Failed to start model server for {model_id}: {str(e)}")
             raise Exception(f"Failed to start model server for {model_id}: {str(e)}")
@@ -146,7 +146,7 @@ async def deploy_model(chapter_id, db=None, use_webrtc: bool = False):
     return ws_urls, lesson_mapper
 
 # 단일 레슨 모델 서버 배포
-async def deploy_lesson_model(lesson_id, db=None, use_webrtc: bool = False):
+async def deploy_lesson_model(lesson_id, db=None):
     from bson import ObjectId
     cleanup_dead_servers()
     if db is None:

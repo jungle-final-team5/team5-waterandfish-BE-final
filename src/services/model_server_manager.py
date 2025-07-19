@@ -19,7 +19,7 @@ class ModelServerManager:
         self.log_threads: Dict[str, threading.Thread] = {}  # {model_id: thread}
         self.count = 0
 
-    async def start_model_server(self, model_id: str, model_data_url: str, use_webrtc: bool = False) -> str:
+    async def start_model_server(self, model_id: str, model_data_url: str) -> str:
         """모델 서버를 시작하고 웹소켓 URL을 반환"""
 
         if model_id not in self.running_servers:
@@ -30,23 +30,6 @@ class ModelServerManager:
             env["MODEL_DATA_URL"] = model_data_url
             env["PYTHONUNBUFFERED"] = "1"  # Python 출력 버퍼링 비활성화
             
-            # # WebRTC 사용 여부에 따라 스크립트 선택
-            # if use_webrtc:
-            #     script_path = os.path.join(os.path.dirname(__file__), "webrtc_signaling_server.py")
-            #     process = subprocess.Popen([
-            #         "python", "-u", script_path,
-            #         "--port", str(port),
-            #         "--model-data-url", model_data_url,
-            #         "--host", "localhost"
-            #         "--debug-video"
-            #     ], 
-            #     env=env,
-            #     stdout=subprocess.PIPE,
-            #     stderr=subprocess.STDOUT,
-            #     text=True,
-            #     bufsize=0,
-            #     universal_newlines=True)
-        
             script_path = os.path.join(os.path.dirname(__file__), "sign_classifier_websocket_server.py")
             # Set the working directory to the parent of the services directory
             working_dir = os.path.dirname(os.path.dirname(__file__))
@@ -82,8 +65,7 @@ class ModelServerManager:
             log_thread.start()
             self.log_threads[model_id] = log_thread
             
-            server_type = "WebRTC" if use_webrtc else "WebSocket"
-            print(f"Started {server_type} model server for {model_id} on port {port}")
+            print(f"Started model server for {model_id} on port {port}")
             
             # 서버가 시작될 때까지 잠시 대기
             await asyncio.sleep(2)
