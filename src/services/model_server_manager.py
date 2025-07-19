@@ -108,7 +108,7 @@ class ModelServerManager:
             # 종료 완료 후 정리 (shutdown_lock 유지하여 우선순위 보장)
             with ml_service.models_lock:
                 ml_service.shutting_down_models.discard(model_id)
-                ml_service.running_models.pop(model_id, None)
+                model_server_manager.running_servers.pop(model_id, None)
             
             return True
         else:

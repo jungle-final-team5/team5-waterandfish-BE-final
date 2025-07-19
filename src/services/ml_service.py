@@ -2,16 +2,16 @@ import os
 import subprocess
 import threading
 import asyncio
-# running_models: model_id(str) -> ws_url(str)
-running_models = dict()
+# model_server_manager.running_servers: model_id(str) -> ws_url(str)
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from ..core.config import settings
 from .model_server_manager import ModelServerManager, model_server_manager
 from ..db.session import get_db
 from bson import ObjectId
 from collections import defaultdict
+from bson import ObjectId
+import re
 
-running_models = defaultdict(list)
 # 동시성 제어를 위한 락들 (종료 우선순위)
 models_lock = threading.Lock()
 shutdown_lock = threading.Lock()  # 종료 작업 전용 락 (우선순위 높음)
@@ -50,7 +50,6 @@ def cleanup_dead_servers():
                     dead_ids.append(model_id)
             for model_id in dead_ids:
                 print(f"[CLEANUP] Removing dead server info for {model_id}")
-                running_models.pop(model_id, None)
                 model_server_manager.running_servers.pop(model_id, None)
                 model_server_manager.server_processes.pop(model_id, None)
 
@@ -73,7 +72,6 @@ async def deploy_model(chapter_id, db=None):
     cleanup_dead_servers()
 
     ws_urls = []
-    import re
     
     for model_data_url in model_data_urls:
         model_id = model_data_url
@@ -95,7 +93,7 @@ async def deploy_model(chapter_id, db=None):
                 pid = process.pid if process else None
                 server_alive = False
                 
-                if model_id in running_models:
+                if model_id in model_server_manager.running_servers:
                     try:
                         server_alive = is_server_alive_by_pid(pid)
                     except Exception:
@@ -103,11 +101,10 @@ async def deploy_model(chapter_id, db=None):
                         
                     if server_alive:
                         print(f"Model server already running for {model_id}")
-                        ws_urls.append(running_models[model_id])
+                        ws_urls.append(model_server_manager.running_servers[model_id])
                         continue
                     else:
                         print(f"Model server for {model_id} is not alive. Restarting...")
-                        running_models.pop(model_id, None)
                         model_server_manager.running_servers.pop(model_id, None)
                         model_server_manager.server_processes.pop(model_id, None)
         
@@ -130,24 +127,21 @@ async def deploy_model(chapter_id, db=None):
             # 시작 완료 후에도 종료되지 않았는지 확인
             if model_id not in shutting_down_models:
                 ws_urls.append(ws_url)
-                running_models[model_id] = ws_url
                 model_server_manager.running_servers[model_id] = ws_url
             else:
                 print(f"Model server {model_id} was shut down during startup, not registering")
         print(f"model server deployed for chapter {chapter_id}: {ws_url}")
-        print(f"현재 running_models: {dict(running_models)}")
         print(f"현재 model_server_manager.running_servers: {dict(model_server_manager.running_servers)}")
         print(f"현재 model_server_manager.server_processes: {{k: v.pid if v else None for k, v in model_server_manager.server_processes.items()}}")
     
     lesson_mapper = defaultdict(str)
     for lesson in lessons:
-        lesson_mapper[str(lesson["_id"])] = running_models[lesson["model_data_url"]]
+        lesson_mapper[str(lesson["_id"])] = model_server_manager.running_servers[lesson["model_data_url"]]
     print('[ml_service]lesson_mapper', lesson_mapper)
     return ws_urls, lesson_mapper
 
 # 단일 레슨 모델 서버 배포
 async def deploy_lesson_model(lesson_id, db=None):
-    from bson import ObjectId
     cleanup_dead_servers()
     if db is None:
         db = await get_db().__anext__()
@@ -159,20 +153,18 @@ async def deploy_lesson_model(lesson_id, db=None):
     if not model_data_url:
         raise Exception(f"Lesson {lesson_id} does not have a model_data_url")
     model_id = model_data_url
-    import re
     
     # 락으로 동시성 제어
     with models_lock:
-        if model_id in running_models:
+        if model_id in model_server_manager.running_servers:
             # 서버가 실제로 살아있는지 확인
             process = model_server_manager.server_processes.get(model_id)
             pid = process.pid if process else None
             if is_server_alive_by_pid(pid):
-                ws_url = running_models[model_id]
+                ws_url = model_server_manager.running_servers[model_id]
             else:
                 # 죽은 서버 정보 정리
                 print(f"Model server for {model_id} is not alive. Restarting...")
-                running_models.pop(model_id, None)
                 model_server_manager.running_servers.pop(model_id, None)
                 model_server_manager.server_processes.pop(model_id, None)
                 ws_url = None
@@ -183,9 +175,5 @@ async def deploy_lesson_model(lesson_id, db=None):
     if ws_url is None:
         ws_url = await model_server_manager.start_model_server(model_id, model_data_url)
         with models_lock:
-            running_models[model_id] = ws_url
-        match = re.search(r":(\d+)/ws", ws_url)
-        if match:
-            port = int(match.group(1))
-            model_server_manager.running_servers[model_id] = port
+            model_server_manager.running_servers[model_id] = ws_url
     return ws_url
