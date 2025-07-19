@@ -12,6 +12,8 @@ def convert_objectid(doc):
         for key, value in doc.items():
             if key == "_id":
                 new_doc["id"] = str(value)
+            elif key == "lesson_ids":
+                new_doc["lesson_ids"] = [str(lesson_id) for lesson_id in value]
             elif isinstance(value, ObjectId):
                 new_doc[key] = str(value)
             else:
