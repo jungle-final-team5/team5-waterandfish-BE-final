@@ -38,6 +38,9 @@ class SignClassifierWebSocketServer:
         self.debug_mode = debug_mode  # 디버그 모드
         self.enable_profiling = enable_profiling  # 성능 프로파일링 모드
         
+        # 종료 대기 태스크
+        self.shutdown_task = None
+        
         
         # 성능 최적화 설정 (벡터 처리에 최적화)
         self.prediction_interval = prediction_interval  # N개 벡터마다 예측 실행
@@ -714,8 +717,15 @@ class SignClassifierWebSocketServer:
     async def handle_client(self, websocket):
         """클라이언트 연결 처리"""
         client_id = self.get_client_id(websocket)
+        
         self.clients.add(websocket)
         self.initialize_client(client_id)
+
+        # 만약 종료 대기 태스크가 있다면 취소
+        if self.shutdown_task is not None and not self.shutdown_task.done():
+            logger.info("[WS] 새 클라이언트 접속: 종료 대기 취소")
+            self.shutdown_task.cancel()
+            self.shutdown_task = None
 
         logger.info(f"[WS] 클라이언트 연결됨: {client_id}")
         logger.info(f"[WS] 기대 메시지 포맷: JSON with 'type': 'landmarks' or 'landmarks_sequence'")
@@ -813,10 +823,23 @@ class SignClassifierWebSocketServer:
                 self.clients.remove(websocket)
                 self.cleanup_client(client_id)
                 if not self.clients:
-                    logger.info("[WS] 모든 클라이언트 연결 종료됨. 서버 프로세스 종료.")
-                    os._exit(0)
+                    logger.info("[WS] 모든 클라이언트 연결 종료됨. 20초 후 서버 프로세스 종료 예정.")
+                    loop = asyncio.get_event_loop()
+                    self.shutdown_task = loop.create_task(self.delayed_shutdown())
             except Exception as cleanup_error:
                 logger.error(f"[WS] 클라이언트 정리 중 오류 [{client_id}]: {cleanup_error}")
+
+    async def delayed_shutdown(self):
+        """20초 후 서버 종료 (새 클라이언트 접속 시 취소 가능)"""
+        try:
+            await asyncio.sleep(20)
+            if not self.clients:
+                logger.info("[WS] 20초 대기 후에도 클라이언트 없음. 서버 프로세스 종료.")
+                os._exit(0)
+            else:
+                logger.info("[WS] 20초 대기 중 새 클라이언트 접속. 종료 취소.")
+        except asyncio.CancelledError:
+            logger.info("[WS] 종료 대기 태스크가 취소되었습니다.")
     
     async def run_server(self):
         """WebSocket 서버 실행"""
