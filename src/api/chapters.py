@@ -245,24 +245,26 @@ async def update_chapter(
         update_data["description"] = data["description"]
     if "order_index" in data:
         update_data["order_index"] = data["order_index"]
-    
+    if "lesson" in data:
+        update_data["lesson_ids"] = [ObjectId(lid) for lid in data["lesson_ids"]]
+
     if not update_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
             detail="No fields to update"
         )
-    
+
     result = await db.Chapters.update_one(
         {"_id": obj_id},
         {"$set": update_data}
     )
-    
+
     if result.matched_count == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
             detail="Chapter not found"
         )
-    
+
     return {
         "success": True,
         "message": "챕터 수정 성공"

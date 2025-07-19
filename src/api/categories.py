@@ -80,8 +80,8 @@ async def get_categories(request: Request, db: AsyncIOMotorDatabase = Depends(ge
         
         for chapter in chapters:
             chapter_id = chapter["_id"]
-            lessons = await db.Lessons.find({"chapter_id": chapter_id}).to_list(length=None)
-            lesson_ids = [lesson["_id"] for lesson in lessons]
+            lesson_ids = chapter.get("lesson_ids", [])
+            lessons = await db.Lessons.find({"_id": {"$in": lesson_ids}}).to_list(length=None)
             lesson_status_map = {}
             
             if user_id and lesson_ids:
