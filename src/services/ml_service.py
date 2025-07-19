@@ -134,8 +134,7 @@ async def deploy_model(chapter_id, db=None, use_webrtc: bool = False):
                 model_server_manager.running_servers[model_id] = ws_url
             else:
                 print(f"Model server {model_id} was shut down during startup, not registering")
-        server_type = "WebRTC" if use_webrtc else "WebSocket"
-        print(f"{server_type} model server deployed for chapter {chapter_id}: {ws_url}")
+        print(f"model server deployed for chapter {chapter_id}: {ws_url}")
         print(f"현재 running_models: {dict(running_models)}")
         print(f"현재 model_server_manager.running_servers: {dict(model_server_manager.running_servers)}")
         print(f"현재 model_server_manager.server_processes: {{k: v.pid if v else None for k, v in model_server_manager.server_processes.items()}}")
@@ -182,7 +181,7 @@ async def deploy_lesson_model(lesson_id, db=None, use_webrtc: bool = False):
     
     # 서버가 없으면 새로 시작 (락 외부에서 실행)
     if ws_url is None:
-        ws_url = await model_server_manager.start_model_server(model_id, model_data_url, use_webrtc)
+        ws_url = await model_server_manager.start_model_server(model_id, model_data_url)
         with models_lock:
             running_models[model_id] = ws_url
         match = re.search(r":(\d+)/ws", ws_url)
