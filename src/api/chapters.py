@@ -125,9 +125,9 @@ async def create_chapter(request: Request, db: AsyncIOMotorDatabase = Depends(ge
 @router.get("")
 async def get_all_chapters(db: AsyncIOMotorDatabase = Depends(get_db)):
     """모든 챕터 조회 (각 챕터별 lesson 포함, order_index 기준 정렬)"""
-    print('[get_all_chapters] flag 1')
+    
     chapters = await db.Chapters.find().sort("order_index", 1).to_list(length=None)
-    print('[get_all_chapters] flag 2')
+
     result = []
     for chapter in chapters:
         lessons = await db.Lessons.find({"_id": {"$in": chapter["lesson_ids"]}}, {"embedding": 0}).to_list(length=None)
@@ -149,7 +149,7 @@ async def get_all_chapters(db: AsyncIOMotorDatabase = Depends(get_db)):
         chapter_data = convert_objectid(chapter)
         chapter_data["lessons"] = lesson_list
         result.append(chapter_data)
-    print('[get_all_chapters] flag 3')
+    
     return {
         "success": True,
         "data": {"chapters": result},
