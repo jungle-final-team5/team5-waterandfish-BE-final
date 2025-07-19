@@ -155,6 +155,36 @@ async def get_all_chapters(db: AsyncIOMotorDatabase = Depends(get_db)):
         "data": {"chapters": result},
         "message": "챕터 목록(레슨 포함, order_index 정렬) 조회 성공"
     }
+    
+@router.get("/v2")
+async def get_all_chapters_v2(db: AsyncIOMotorDatabase = Depends(get_db)):
+    chapters = await db.Chapters.find().to_list(length=None)
+    result = []
+    for chapter in chapters:
+        lesson_list = []
+        lessons = await db.Lessons.find({"_id": {"$in": chapter["lesson_ids"]}}, {"embedding": 0}).to_list(length=None)
+        for lesson in lessons:
+            item = {
+                "id": str(lesson["_id"]),
+                "chapterId": str(lesson["chapter_id"]),
+                "word": lesson.get("sign_text", ""),
+                "type": lesson.get("content_type", "")
+            }
+            if "model_data_url" in lesson:
+                item["modelInfo"] = lesson["model_data_url"]
+            if "media_url" in lesson:
+                item["url"] = lesson["media_url"]
+            if "created_at" in lesson and isinstance(lesson["created_at"], datetime):
+                item["created_at"] = lesson["created_at"].isoformat()
+            lesson_list.append(item)
+        chapter_data = convert_objectid(chapter)
+        chapter_data["lessons"] = lesson_list
+        result.append(chapter_data)
+    return {
+        "success": True,
+        "data": {"chapters": result},
+        "message": "챕터 목록(레슨 포함, order_index 정렬) 조회 성공"
+    }
 
 @router.get("/{chapter_id}")
 async def get_chapter(
@@ -317,7 +347,7 @@ async def connect_lessons_to_chapter(
         "success": True,
         "message": "레슨 연결 성공"
     }
-# 없애도 될 듯
+
 @router.get("/{chapter_id}/session")
 async def get_chapter_session(
     chapter_id: str,
@@ -339,7 +369,7 @@ async def get_chapter_session(
             status_code=status.HTTP_404_NOT_FOUND, 
             detail="Chapter not found"
         )
-    lessons = await db.Lessons.find({"chapter_id": obj_id}).to_list(length=None)
+    lessons = await db.Lessons.find({"_id": {"$in": chapter["lesson_ids"]}}, {"embedding": 0}).to_list(length=None)
     lesson_ids = [lesson["_id"] for lesson in lessons]
     lesson_status_map = {}
     if user_id and lesson_ids:

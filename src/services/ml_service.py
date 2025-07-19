@@ -66,7 +66,7 @@ async def deploy_model(chapter_id, db=None, use_webrtc: bool = False):
         raise Exception(f"Chapter with id {chapter_id} not found")
     
     # 해당 챕터의 레슨들 조회
-    lessons = await db.Lessons.find({"chapter_id": chapter_id}).to_list(length=None)    
+    lessons = await db.Lessons.find({"_id": {"$in": chapter["lesson_ids"]}}, {"embedding": 0}).to_list(length=None)
     
     # 모델 데이터 URL이 있는 레슨 확인
     model_data_urls = [lesson.get("model_data_url") for lesson in lessons if lesson.get("model_data_url")]
