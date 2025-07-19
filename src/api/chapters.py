@@ -61,6 +61,66 @@ async def create_chapter(request: Request, db: AsyncIOMotorDatabase = Depends(ge
         status_code=status.HTTP_201_CREATED,
         content=convert_objectid(created)
     )
+    
+@router.post("/v2")
+async def create_chapter(request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
+    """챕터 생성"""
+    data = await request.json()
+    
+    if "title" not in data or "categoryid" not in data or "type" not in data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Missing required fields: title, categoryid, type"
+        )
+    
+    if data["type"] not in CHAPTER_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail=f"Invalid type: {data['type']}"
+        )
+    if data["course_type"] not in [1, 2]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail=f"Invalid course type: {data['course_type']}"
+        )
+    
+    lesson_ids = [ObjectId(lid) for lid in data["lesson_ids"]]
+    
+    try:
+        category_id = ObjectId(data["categoryid"])
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Invalid category ID"
+        )
+    
+    category = await db.Category.find_one({"_id": category_id})
+    
+    if not category:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Category not found"
+        )
+    
+    chapter_data = {
+        "category_id": category["_id"],
+        "title": data["title"],
+        "lesson_type": data["type"],
+        "order_index": 0,
+        "description": None,
+        "created_at": datetime.utcnow(),
+        "course_type": data["course_type"],
+        "lesson_ids": lesson_ids
+    }
+    
+    result = await db.Chapters.insert_one(chapter_data)
+    created = await db.Chapters.find_one({"_id": result.inserted_id})
+    created.pop("created_at", None)
+    
+    return JSONResponse(
+        status_code=status.HTTP_201_CREATED,
+        content=convert_objectid(created)
+    )
 
 @router.get("")
 async def get_all_chapters(db: AsyncIOMotorDatabase = Depends(get_db)):
@@ -331,7 +391,22 @@ async def get_chapter_session(
         "data": result,
         "message": "챕터 학습 세션 조회 성공"
     }
-
+    
+@router.get("/v2/{chapter_id}")
+async def get_chapter_v2(
+    chapter_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """챕터 조회"""
+    chapter = await db.Chapters.find_one({"_id": ObjectId(chapter_id)})
+    encoded_chapter = convert_objectid(chapter)
+    
+    return {    
+        "success": True,
+        "data": encoded_chapter,
+        "message": "챕터 조회 성공"
+    }
+            
 @router.get("/{chapter_id}/guide")
 async def get_chapter_guide(
     chapter_id: str,
