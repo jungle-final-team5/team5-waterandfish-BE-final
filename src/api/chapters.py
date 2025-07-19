@@ -65,7 +65,9 @@ async def create_chapter(request: Request, db: AsyncIOMotorDatabase = Depends(ge
 @router.get("")
 async def get_all_chapters(db: AsyncIOMotorDatabase = Depends(get_db)):
     """모든 챕터 조회 (각 챕터별 lesson 포함, order_index 기준 정렬)"""
+    print('[get_all_chapters] flag 1')
     chapters = await db.Chapters.find().sort("order_index", 1).to_list(length=None)
+    print('[get_all_chapters] flag 2')
     result = []
     for chapter in chapters:
         lessons = await db.Lessons.find({"chapter_id": chapter["_id"]}).to_list(length=None)
@@ -87,6 +89,7 @@ async def get_all_chapters(db: AsyncIOMotorDatabase = Depends(get_db)):
         chapter_data = convert_objectid(chapter)
         chapter_data["lessons"] = lesson_list
         result.append(chapter_data)
+    print('[get_all_chapters] flag 3')
     return {
         "success": True,
         "data": {"chapters": result},
@@ -224,6 +227,18 @@ async def connect_lessons_to_chapter(
     
     lesson_ids = data.get("lesson", [])
     lesson_obj_ids = [ObjectId(lid) for lid in lesson_ids]
+    course_type = data.get("course_type", 1)
+    
+    chapter = await db.Chapters.find_one({"_id": chapter_obj_id})
+    if not chapter:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Chapter not found"
+        )
+    await db.Chapters.update_one(
+        {"_id": chapter_obj_id},
+        {"$set": {"course_type": course_type, "lesson_ids": lesson_obj_ids}}
+    )   
     
     # 기존 연결 해제
     await db.Lessons.update_many(
