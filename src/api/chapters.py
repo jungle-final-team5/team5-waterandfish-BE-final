@@ -130,7 +130,7 @@ async def get_all_chapters(db: AsyncIOMotorDatabase = Depends(get_db)):
     print('[get_all_chapters] flag 2')
     result = []
     for chapter in chapters:
-        lessons = await db.Lessons.find({"chapter_id": chapter["_id"]}).to_list(length=None)
+        lessons = await db.Lessons.find({"_id": {"$in": chapter["lesson_ids"]}}, {"embedding": 0}).to_list(length=None)
         lesson_list = []
         for lesson in lessons:
             item = {
