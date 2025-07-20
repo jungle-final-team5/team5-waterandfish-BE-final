@@ -17,8 +17,39 @@ models_lock = threading.Lock()
 shutdown_lock = threading.Lock()  # 종료 작업 전용 락 (우선순위 높음)
 # 종료 중인 모델들을 추적
 shutting_down_models = set()
+
 import signal
-import signal
+import heapq
+
+
+# 포트 풀 및 락 (9001~9100, 작은 번호부터 할당)
+PORT_RANGE_START = 9001
+PORT_RANGE_END = 9100
+available_ports = list(range(PORT_RANGE_START, PORT_RANGE_END + 1))
+heapq.heapify(available_ports)
+ports_lock = threading.Lock()
+
+# 모델별 할당된 포트 추적용 (model_id -> port)
+model_ports = {}
+
+
+# 포트 할당 함수 (작은 번호부터 할당)
+def allocate_port(model_id):
+    with ports_lock:
+        if model_id in model_ports:
+            return model_ports[model_id]
+        if not available_ports:
+            raise Exception("No available ports in pool")
+        port = heapq.heappop(available_ports)
+        model_ports[model_id] = port
+        return port
+
+# 포트 회수 함수 (작은 번호부터 할당 유지)
+def release_port(model_id):
+    with ports_lock:
+        port = model_ports.pop(model_id, None)
+        if port is not None:
+            heapq.heappush(available_ports, port)
 def is_server_alive_by_pid(pid):
     try:
         if pid is None:
@@ -44,7 +75,6 @@ def cleanup_dead_servers():
                 # 종료 중인 모델은 정리 대상에서 제외 (종료 작업이 처리)
                 if model_id in shutting_down_models:
                     continue
-                    
                 pid = process.pid if process else None
                 if not is_server_alive_by_pid(pid):
                     dead_ids.append(model_id)
@@ -52,6 +82,8 @@ def cleanup_dead_servers():
                 print(f"[CLEANUP] Removing dead server info for {model_id}")
                 model_server_manager.running_servers.pop(model_id, None)
                 model_server_manager.server_processes.pop(model_id, None)
+                # 포트 회수
+                release_port(model_id)
 
 async def deploy_model(chapter_id, db=None):
     """챕터에 해당하는 모델 서버를 배포"""
@@ -72,10 +104,10 @@ async def deploy_model(chapter_id, db=None):
     cleanup_dead_servers()
 
     ws_urls = []
-    
+
     for model_data_url in model_data_urls:
         model_id = model_data_url
-        
+
         # 1단계: 종료 중인지 먼저 확인 (우선순위 존중)
         shutdown_in_progress = False
         with shutdown_lock:  # 종료 작업이 진행 중인지 확인
@@ -83,7 +115,7 @@ async def deploy_model(chapter_id, db=None):
                 if model_id in shutting_down_models:
                     print(f"Model server {model_id} is shutting down, will start new one")
                     shutdown_in_progress = True
-        
+
         # 2단계: 종료 중이 아니라면 일반적인 상태 확인
         if not shutdown_in_progress:
             # 락으로 동시성 제어 (종료 작업이 끼어들 수 있음)
@@ -92,13 +124,13 @@ async def deploy_model(chapter_id, db=None):
                 process = model_server_manager.server_processes.get(model_id)
                 pid = process.pid if process else None
                 server_alive = False
-                
+
                 if model_id in model_server_manager.running_servers:
                     try:
                         server_alive = is_server_alive_by_pid(pid)
                     except Exception:
                         server_alive = False
-                        
+
                     if server_alive:
                         print(f"Model server already running for {model_id}")
                         ws_urls.append(model_server_manager.running_servers[model_id])
@@ -107,21 +139,23 @@ async def deploy_model(chapter_id, db=None):
                         print(f"Model server for {model_id} is not alive. Restarting...")
                         model_server_manager.running_servers.pop(model_id, None)
                         model_server_manager.server_processes.pop(model_id, None)
-        
+
         # 3단계: 서버 시작 전에 다시 한번 종료 상태 확인
         with shutdown_lock:  # 종료 작업이 시작되지 않았는지 최종 확인
             with models_lock:
                 if model_id in shutting_down_models:
                     print(f"Model server {model_id} shutdown detected during startup, skipping...")
                     continue
-        
-        # 4단계: 모델 서버 시작 (락 외부에서 실행)
+
+        # 4단계: 포트 할당 및 모델 서버 시작 (락 외부에서 실행)
+        port = allocate_port(model_id)
         try:
-            ws_url = await model_server_manager.start_model_server(model_id, model_data_url)
+            ws_url = await model_server_manager.start_model_server(model_id, model_data_url, port=port)
         except Exception as e:
             print(f"Failed to start model server for {model_id}: {str(e)}")
+            release_port(model_id)
             raise Exception(f"Failed to start model server for {model_id}: {str(e)}")
-        
+
         # 5단계: 결과 저장 (종료 작업과 충돌하지 않도록)
         with models_lock:
             # 시작 완료 후에도 종료되지 않았는지 확인
@@ -130,6 +164,7 @@ async def deploy_model(chapter_id, db=None):
                 model_server_manager.running_servers[model_id] = ws_url
             else:
                 print(f"Model server {model_id} was shut down during startup, not registering")
+                release_port(model_id)
         print(f"model server deployed for chapter {chapter_id}: {ws_url}")
         print(f"현재 model_server_manager.running_servers: {dict(model_server_manager.running_servers)}")
         print(f"현재 model_server_manager.server_processes: {{k: v.pid if v else None for k, v in model_server_manager.server_processes.items()}}")
@@ -170,10 +205,15 @@ async def deploy_lesson_model(lesson_id, db=None):
                 ws_url = None
         else:
             ws_url = None
-    
+
     # 서버가 없으면 새로 시작 (락 외부에서 실행)
     if ws_url is None:
-        ws_url = await model_server_manager.start_model_server(model_id, model_data_url)
+        port = allocate_port(model_id)
+        try:
+            ws_url = await model_server_manager.start_model_server(model_id, model_data_url, port=port)
+        except Exception as e:
+            release_port(model_id)
+            raise
         with models_lock:
             model_server_manager.running_servers[model_id] = ws_url
     return ws_url

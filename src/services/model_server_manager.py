@@ -19,17 +19,19 @@ class ModelServerManager:
         self.log_threads: Dict[str, threading.Thread] = {}  # {model_id: thread}
         self.count = 0
 
-    async def start_model_server(self, model_id: str, model_data_url: str) -> str:
-        """모델 서버를 시작하고 웹소켓 URL을 반환"""
+    async def start_model_server(self, model_id: str, model_data_url: str, port: int = None) -> str:
+        """모델 서버를 시작하고 웹소켓 URL을 반환. port가 주어지면 해당 포트 사용"""
 
         if model_id not in self.running_servers:
-            port = self.MODEL_PORT_BASE + (self.count%100)
-            self.count = ((self.count+1)%100)
+            # 외부에서 포트가 주어지면 그대로 사용, 아니면 기존 방식대로 할당
+            if port is None:
+                port = self.MODEL_PORT_BASE + (self.count % 100)
+                self.count = ((self.count + 1) % 100)
             # 모델 서버 프로세스 시작
             env = os.environ.copy()
             env["MODEL_DATA_URL"] = model_data_url
             env["PYTHONUNBUFFERED"] = "1"  # Python 출력 버퍼링 비활성화
-            
+
             script_path = os.path.join(os.path.dirname(__file__), "sign_classifier_websocket_server.py")
             # Set the working directory to the parent of the services directory
             working_dir = os.path.dirname(os.path.dirname(__file__))
@@ -42,7 +44,7 @@ class ModelServerManager:
                 # "--debug-video",
                 # "--accuracy-mode",
                 # "--enable-profiling",
-            ], 
+            ],
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -50,12 +52,12 @@ class ModelServerManager:
             bufsize=0,
             universal_newlines=True,
             cwd=working_dir)
-            
+
             print(f"Model server process PID: {process.pid}")
-            
+
             self.running_servers[model_id] = port
             self.server_processes[model_id] = process
-            
+
             # 로그 처리 스레드 시작
             log_thread = threading.Thread(
                 target=self._handle_logs_thread,
@@ -64,15 +66,15 @@ class ModelServerManager:
             )
             log_thread.start()
             self.log_threads[model_id] = log_thread
-            
+
             print(f"Started model server for {model_id} on port {port}")
-            
+
             # 서버가 시작될 때까지 잠시 대기
             await asyncio.sleep(2)
         else:
             port = self.running_servers[model_id]
         MODEL_SERVER_HOST = settings.MODEL_SERVER_HOST
-        
+
         if MODEL_SERVER_HOST == "localhost":
             return f"ws://localhost:{port}"
         else:
