@@ -24,6 +24,10 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
+# TensorFlow 호환성을 위한 환경 변수 설정
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # TensorFlow 경고 메시지 줄이기
+
 from s3_utils import s3_utils
 
 # 로깅 설정은 main() 함수에서 동적으로 설정됩니다
@@ -114,6 +118,53 @@ class SignClassifierWebSocketServer:
         # MediaPipe 관련 초기화 제거 - 프론트엔드에서 처리
         logger.info("벡터 처리 모드 - MediaPipe는 프론트엔드에서 처리됩니다")
         
+        # GPU 메모리 설정 (TensorFlow 초기화 전에 설정)
+        try:
+            gpus = tf.config.experimental.list_physical_devices('GPU')
+            if gpus:
+                # GPU 메모리 증가 허용
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+                logger.info(f"GPU 메모리 증가 설정 완료: {len(gpus)}개 GPU")
+                
+                # GPU 타입 감지 및 메모리 제한 설정
+                try:
+                    # GPU 정보 확인 (NVIDIA A10G = g4.xlarge, NVIDIA A10 = g5.xlarge)
+                    gpu_name = ""
+                    try:
+                        import subprocess
+                        result = subprocess.run(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader,nounits'], 
+                                              capture_output=True, text=True, timeout=5)
+                        if result.returncode == 0:
+                            gpu_name = result.stdout.strip()
+                    except:
+                        pass
+                    
+                    # GPU 타입에 따른 메모리 제한 설정
+                    if "A10G" in gpu_name:
+                        # g4.xlarge: 16GB VRAM, 14GB로 제한
+                        memory_limit = 14 * 1024
+                        logger.info(f"g4.xlarge 감지됨 (A10G): GPU 메모리 제한 설정: 14GB")
+                    elif "A10" in gpu_name:
+                        # g5.xlarge: 24GB VRAM, 20GB로 제한
+                        memory_limit = 20 * 1024
+                        logger.info(f"g5.xlarge 감지됨 (A10): GPU 메모리 제한 설정: 20GB")
+                    else:
+                        # 기본값: 12GB로 제한
+                        memory_limit = 12 * 1024
+                        logger.info(f"알 수 없는 GPU 타입: 기본 GPU 메모리 제한 설정: 12GB")
+                    
+                    tf.config.set_logical_device_configuration(
+                        gpus[0],
+                        [tf.config.LogicalDeviceConfiguration(memory_limit=memory_limit)]
+                    )
+                    logger.info(f"GPU 메모리 제한 설정 완료: {memory_limit//1024}GB")
+                except Exception as mem_limit_error:
+                    logger.warning(f"GPU 메모리 제한 설정 실패: {mem_limit_error}")
+                    logger.info("기본 GPU 메모리 설정 사용")
+        except Exception as e:
+            logger.warning(f"GPU 메모리 설정 실패: {e}")
+        
         # 모델 로드
         try:
             # Keras 3와 tf-keras 호환성을 위한 모델 로딩
@@ -172,27 +223,33 @@ class SignClassifierWebSocketServer:
             # TensorFlow 성능 최적화 설정
             tf.config.optimizer.set_jit(True)  # XLA JIT 컴파일 활성화
             
-            # 그래프 모드 활성화 (TensorFlow 2.x에서 1.x 스타일 그래프 모드 사용)
-            tf.compat.v1.disable_eager_execution()
-            logger.info("TensorFlow 그래프 모드 활성화됨")
+            # TensorFlow 2.x 호환성을 위한 설정
+            # 그래프 모드 대신 tf.function을 사용한 최적화
+            logger.info("TensorFlow 2.x 호환 모드 활성화됨")
             
-            # 모델을 그래프 모드로 변환
+            # 모델을 tf.function으로 최적화
             try:
-                # 모델을 ConcreteFunction으로 변환
-                dummy_input = np.zeros((1, self.MAX_SEQ_LENGTH, 675))
-                concrete_func = tf.function(self.model.predict).get_concrete_function(
-                    tf.TensorSpec(shape=(1, self.MAX_SEQ_LENGTH, 675), dtype=tf.float32)
-                )
-                self.model_predict_fn = concrete_func
-                logger.info("모델을 그래프 모드로 변환 완료")
+                # 모델을 tf.function으로 래핑하여 성능 최적화
+                @tf.function
+                def optimized_predict(input_data):
+                    return self.model(input_data, training=False)
+                
+                self.model_predict_fn = optimized_predict
+                logger.info("모델을 tf.function으로 최적화 완료")
             except Exception as e:
-                logger.warning(f"그래프 모드 변환 실패, 기본 모드 사용: {e}")
+                logger.warning(f"tf.function 최적화 실패, 기본 모드 사용: {e}")
                 self.model_predict_fn = None
             
             # 모델 warming up (첫 번째 예측 시 느린 속도 방지)
-            dummy_input = np.zeros((1, self.MAX_SEQ_LENGTH, 675))
-            _ = self.model.predict(dummy_input, verbose=0)
-            logger.info("모델 warming up 완료")
+            try:
+                dummy_input = np.zeros((1, self.MAX_SEQ_LENGTH, 675), dtype=np.float32)
+                if self.model_predict_fn:
+                    _ = self.model_predict_fn(dummy_input)
+                else:
+                    _ = self.model.predict(dummy_input, verbose=0)
+                logger.info("모델 warming up 완료")
+            except Exception as e:
+                logger.warning(f"모델 warming up 실패: {e}")
             
             # TensorFlow 프로파일러 초기화 (프로파일링 모드가 활성화된 경우)
             if self.enable_profiling:
@@ -674,12 +731,20 @@ class SignClassifierWebSocketServer:
                 # 5. 모델 예측 (그래프 모드 사용)
                 prediction_start = time.time()
                 
-                # 그래프 모드 함수가 있으면 사용, 없으면 기본 모드 사용
+                # 최적화된 함수가 있으면 사용, 없으면 기본 모드 사용
                 if hasattr(self, 'model_predict_fn') and self.model_predict_fn is not None:
-                    # 그래프 모드로 예측
-                    input_tensor = tf.convert_to_tensor(sequence.reshape(1, *sequence.shape), dtype=tf.float32)
-                    pred_probs = self.model_predict_fn(input_tensor)
-                    pred_probs = pred_probs.numpy()  # Tensor를 numpy로 변환
+                    # tf.function으로 최적화된 예측
+                    try:
+                        input_tensor = tf.convert_to_tensor(sequence.reshape(1, *sequence.shape), dtype=tf.float32)
+                        pred_probs = self.model_predict_fn(input_tensor)
+                        # Tensor를 numpy로 안전하게 변환
+                        if hasattr(pred_probs, 'numpy'):
+                            pred_probs = pred_probs.numpy()
+                        else:
+                            pred_probs = np.array(pred_probs)
+                    except Exception as e:
+                        logger.warning(f"최적화된 예측 실패, 기본 모드로 전환: {e}")
+                        pred_probs = self.model.predict(sequence.reshape(1, *sequence.shape), verbose=0)
                 else:
                     # 기본 모드로 예측
                     pred_probs = self.model.predict(sequence.reshape(1, *sequence.shape), verbose=0)
@@ -1089,3 +1154,4 @@ def main():
 
 if __name__ == "__main__":
     main() 
+
