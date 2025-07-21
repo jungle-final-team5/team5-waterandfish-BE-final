@@ -45,3 +45,5 @@ poetry.lock
 
 # Added by Gemini
 requirements.txt
+
+src/logs/plugins/profile/
